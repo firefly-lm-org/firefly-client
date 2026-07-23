@@ -1,0 +1,48 @@
+name: CI · Firefly Client
+
+on:
+  push:
+    branches: [main]
+    paths: ["firefly-client/**"]
+  pull_request:
+    branches: [main]
+    paths: ["firefly-client/**"]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: firefly-client/requirements.txt
+
+      - name: Install core deps (no GPU needed for unit tests)
+        run: |
+          pip install -r firefly-client/requirements.txt \
+            torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Unit tests
+        run: |
+          # Test hardware detection
+          python -m firefly.core.hardware
+
+          # Test API client init (no real server needed)
+          python -c "
+          from firefly.core.client import FireflyClient, NodeCredentials
+          creds = NodeCredentials('test', 'fn_test', 'http://localhost:8000')
+          client = FireflyClient('http://localhost:8000', 'test', 'fn_test')
+          print('Client init OK')
+          "
+
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check firefly-client/firefly/ --ignore E501
