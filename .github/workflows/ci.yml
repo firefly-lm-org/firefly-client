@@ -1,7 +1,6 @@
 name: CI · Firefly Client
 
-on:
-  push:
+on:\n  workflow_dispatch:\n    push:
     branches: [main]
     paths: ["firefly-client/**"]
   pull_request:
