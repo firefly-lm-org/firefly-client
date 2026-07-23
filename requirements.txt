@@ -1,0 +1,16 @@
+# ─── Firefly Client · 火种客户端 ───────────────────────────────────────────
+# 依赖清单（训练节点需要，调度中心不需要）
+
+torch>=2.0.0
+
+transformers>=4.46.0
+peft>=0.14.0
+bitsandbytes>=0.44.0
+accelerate>=1.0.0
+datasets>=3.0.0
+
+boto3>=1.36.0
+
+click>=8.1.0
+httpx>=0.28.0
+psutil>=6.1.0
