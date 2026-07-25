@@ -1,3 +1,4 @@
+# firefly-client requirements
 httpx[cli]==0.27.2
 pydantic==2.9.0
 pydantic-settings==2.5.2
@@ -5,7 +6,20 @@ rich==13.9.2
 python-dotenv==1.0.1
 typer==0.12.5
 click==8.1.7
-# testing
+
+# ── QLoRA 训练依赖（v0.2 新增）──────────────────────────────
+# 核心：优先 unsloth（快 2×，省显存 50%），自动 fallback 到标准库
+unsloth>=2024.11.0        # 训练加速框架；不可用时自动降级
+transformers>=4.46.0       # 模型加载 / tokenizer
+peft>=0.13.0               # LoRA 配置
+datasets>=3.0.0            # 数据集加载
+accelerate>=0.34.0         # 分布式 / 多卡训练支持
+bitsandbytes>=0.43.0       # 4bit 量化
+safetensors>=0.4.0         # 权重文件格式
+trl>=0.12.0                # SFTTrainer（监督微调）
+numpy>=1.24.0              # safetensors.numpy 依赖
+
+# ── testing ─────────────────────────────────────────────────
 pytest>=8.0
 pytest-asyncio>=0.23
 httpretty>=1.1
