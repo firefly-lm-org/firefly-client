@@ -1,0 +1,23 @@
+# Firefly LM Client — 安全与缓存头（Cloudflare / 静态托管通用）
+
+/*
+  # 内容安全策略：仅允许自身 + GitHub + 爱发电
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://github.com https://ifdian.net; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+
+  # 强制内容类型，防 MIME 嗅探
+  X-Content-Type-Options: nosniff
+
+  # 防点击劫持
+  X-Frame-Options: DENY
+
+  # 旧浏览器 XSS 防护兜底
+  X-XSS-Protection: 1; mode=block
+
+  # 跨域 referrer 控制
+  Referrer-Policy: strict-origin-when-cross-origin
+
+  # 权限 API 禁用（客户端不需要摄像头/麦克风等）
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+
+  # HSTS：2 年 + 含子域 + 预加载
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
