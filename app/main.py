@@ -3,6 +3,7 @@ firefly-client · 主入口
 命令行接口：register / login / start / stop / status / stats
 """
 import asyncio
+import os
 import signal
 import sys
 from rich.console import Console
@@ -84,10 +85,25 @@ def node_register(
 # 命令 4：start（核心：开始贡献算力）
 # ─────────────────────────────────────
 @app.command()
-def start():
+def start(
+    mock: bool = typer.Option(
+        False,
+        "--mock",
+        help="🔧 使用模拟训练（无 GPU / 测试用），不加则默认真实 QLoRA",
+    ),
+):
     """🚀 开始贡献算力（后台持续运行）"""
     global cfg, heartbeat_task, running
     cfg = load_config()
+
+    # ── 注入训练模式（task_executor.py 会读取）────────
+    if mock:
+        os.environ["FIREFLY_MOCK"] = "1"
+        train_mode = "Mock（测试模式）"
+        console.print("[yellow]⚠️  FIREFLY_MOCK=1，将使用模拟训练[/yellow]")
+    else:
+        os.environ.pop("FIREFLY_MOCK", None)   # 默认为真实 QLoRA
+        train_mode = "真实 QLoRA（需 NVIDIA GPU）"
 
     if not asyncio.run(ensure_authenticated(cfg)):
         sys.exit(1)
@@ -97,7 +113,8 @@ def start():
         sys.exit(1)
 
     console.print(Panel.fit(
-        "[bold green]🔥 萤火虫客户端已启动[/bold green]\n"
+        f"[bold green]🔥 萤火虫客户端已启动[/bold green]\n"
+        f"训练模式: {train_mode}\n"
         "正在连接调度中心...\n"
         "按 Ctrl+C 停止贡献",
         title="Firefly Client", border_style="yellow",
