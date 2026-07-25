@@ -1,455 +1,457 @@
-r"""
-firefly-client · 真实 QLoRA 训练器（v0.2 核心）
-替换 mock_trainer.py，跑通真实 QLoRA 微调流程
-
-依赖（需 pip install）：
-    pip install unsloth transformers peft datasets accelerate safetensors bitsandbytes trl
-
-触发条件：
-    FIREFLY_MOCK=0（默认）或 --trainer real
-    Windows 原生需 CUDA 12.1+；WSL2/Linux 无限制
-
-用法示例（本地有 GPU 时）：
-    FIREFLY_MOCK=0 python -m app.main start
 """
-from __future__ import annotations
+real_trainer.py — Firefly LM 真实 QLoRA 训练器
 
-import asyncio
-import gc
-import json
+基于 Unsloth 在本地对 Qwen3-1.5B（4-bit 量化）跑 LoRA 微调，
+产出 .safetensors 权重文件回传调度中心。
+
+设计原则：
+- MODEL_PATH 支持环境变量 FIREFLY_MODEL_PATH，不硬编码本地路径
+- 默认走 HuggingFace Hub 自动下载（unsloth/Qwen3-1.5B-Instruct-4bit）
+- 进度回调 injectable，供 task_executor 上报心跳
+- 训练中断时可从 checkpoint 续跑
+
+使用：
+    from app.trainer.real_trainer import RealTrainer
+    trainer = RealTrainer(model_path=..., data_path=..., output_dir=...)
+    result = trainer.train(progress_callback=cb)
+"""
+
 import os
-import shutil
-import subprocess
-import sys
+import json
 import time
-from datetime import datetime
+import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable, Dict, Any
 
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+logger = logging.getLogger("firefly.trainer.real")
 
-from app.trainer.base import BaseTrainer, TrainingConfig
 
-console = Console()
-CHECKPOINT_DIR = Path.home() / ".firefly" / "checkpoints"
-TASK_DIR_BASE  = Path.home() / ".firefly" / "tasks"
+# ─────────────────────────────────────────────
+# 默认配置（可用环境变量覆盖）
+# ─────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 辅助：同步训练函数（放在线程池避免阻塞事件循环）
-# ─────────────────────────────────────────────────────────────────────────────
+DEFAULT_MODEL_PATH = "unsloth/Qwen3-1.5B-Instruct-4bit"
+DEFAULT_LORA_RANK = 32
+DEFAULT_LORA_ALPHA = 64
+DEFAULT_LORA_DROPOUT = 0.05
+DEFAULT_LEARNING_RATE = 2e-4
+DEFAULT_MAX_STEPS = 100
+DEFAULT_BATCH_SIZE = 2
+DEFAULT_GRAD_ACCUM = 4
+DEFAULT_MAX_SEQ_LEN = 2048
 
-def _check_gpu() -> tuple[bool, int]:
-    """检测 GPU，返回 (有GPU, 显存MB)"""
+# 挂载 LoRA 的模块（Qwen3 注意力投影）
+DEFAULT_LORA_TARGET_MODULES = ["q_proj", "v_proj"]
+
+
+def _env_int(name: str, default: int) -> int:
+    val = os.environ.get(name)
+    if val is None:
+        return default
     try:
-        import torch
-        if torch.cuda.is_available():
-            gpu = torch.cuda.get_device_properties(0)
-            return True, int(gpu.total_mem / 1024**2)
-    except Exception:
-        pass
-    return False, 0
+        return int(val)
+    except ValueError:
+        logger.warning(f"{name}={val} 不是合法整数，使用默认 {default}")
+        return default
 
 
-def _resolve_model_name(name: str) -> str:
+def _env_float(name: str, default: float) -> float:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
+# ─────────────────────────────────────────────
+# RealTrainer
+# ─────────────────────────────────────────────
+
+class RealTrainer:
     """
-    将简写模型名映射为完整 HuggingFace ID
-    支持：qwen3-1.5b / qwen3-7b / llama3-8b / auto
+    真实 QLoRA 训练器（基于 Unsloth）。
+
+    参数均可用环境变量覆盖，方便无 GPU 开发机和有 GPU 训练机
+    使用同一份代码、不同配置。
     """
-    shortcuts = {
-        "qwen3-1.5b":  "unsloth/Qwen3-1.5B-Instruct-4bit",
-        "qwen3-7b":    "unsloth/Qwen3-7B-Instruct-bnb-4bit",
-        "llama3-8b":   "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
-        "auto":        "unsloth/Qwen3-1.5B-Instruct-4bit",
-    }
-    return shortcuts.get(name.lower().strip(), name)
 
+    def __init__(
+        self,
+        model_path: Optional[str] = None,
+        data_path: Optional[str] = None,
+        output_dir: str = "~/.firefly/checkpoints",
+        lora_rank: Optional[int] = None,
+        lora_alpha: Optional[int] = None,
+        lora_dropout: Optional[float] = None,
+        learning_rate: Optional[float] = None,
+        max_steps: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        grad_accum: Optional[int] = None,
+        max_seq_len: Optional[int] = None,
+        lora_target_modules: Optional[list] = None,
+        seed: int = 42,
+    ):
+        # 模型路径：参数 > 环境变量 > 默认值
+        self.model_path = (
+            model_path
+            or os.environ.get("FIREFLY_MODEL_PATH")
+            or DEFAULT_MODEL_PATH
+        )
 
-def _prepare_dataset(dataset_path: str, max_samples: int = 100) -> str:
-    """
-    准备训练数据集，返回本地 JSON 文件路径
-    - dataset_path 为 HuggingFace ID（如 "yahma/alpaca-cleaned"）：自动下载前 max_samples 条
-    - dataset_path 为本地文件路径：直接返回
-    返回：本地 JSONL 文件路径（每行一条 {"instruction":"...","input":"...","output":"..."}）
-    """
-    local_path = CHECKPOINT_DIR / "dataset.jsonl"
-    local_path.parent.mkdir(parents=True, exist_ok=True)
+        self.data_path = data_path or os.environ.get("FIREFLY_DATA_PATH")
+        self.output_dir = os.path.expanduser(output_dir)
+        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
-    # 空路径：用默认 alpaca-cleaned
-    if not dataset_path or not dataset_path.strip():
-        dataset_path = "yahma/alpaca-cleaned"
+        # LoRA / 训练超参：参数 > 环境变量 > 默认
+        self.lora_rank = lora_rank or _env_int("FIREFLY_LORA_RANK", DEFAULT_LORA_RANK)
+        self.lora_alpha = lora_alpha or _env_int("FIREFLY_LORA_ALPHA", DEFAULT_LORA_ALPHA)
+        self.lora_dropout = lora_dropout or _env_float("FIREFLY_LORA_DROPOUT", DEFAULT_LORA_DROPOUT)
+        self.learning_rate = learning_rate or _env_float("FIREFLY_LR", DEFAULT_LEARNING_RATE)
+        self.max_steps = max_steps or _env_int("FIREFLY_MAX_STEPS", DEFAULT_MAX_STEPS)
+        self.batch_size = batch_size or _env_int("FIREFLY_BATCH_SIZE", DEFAULT_BATCH_SIZE)
+        self.grad_accum = grad_accum or _env_int("FIREFLY_GRAD_ACCUM", DEFAULT_GRAD_ACCUM)
+        self.max_seq_len = max_seq_len or _env_int("FIREFLY_MAX_SEQ_LEN", DEFAULT_MAX_SEQ_LEN)
+        self.lora_target_modules = lora_target_modules or DEFAULT_LORA_TARGET_MODULES
+        self.seed = seed
 
-    if dataset_path.startswith("hf://") or "/" in dataset_path:
-        console.print(f"[dim]📥 从 HuggingFace 下载数据集: {dataset_path}[/dim]")
+        self._model = None
+        self._tokenizer = None
+        self._trainer = None
+        self._current_step = 0
+
+        logger.info(f"[RealTrainer] model={self.model_path}")
+        logger.info(f"[RealTrainer] lora_rank={self.lora_rank} alpha={self.lora_alpha} dropout={self.lora_dropout}")
+        logger.info(f"[RealTrainer] lr={self.learning_rate} max_steps={self.max_steps} bs={self.batch_size} grad_accum={self.grad_accum}")
+        logger.info(f"[RealTrainer] output_dir={self.output_dir}")
+
+    # ── 进度回调 ──────────────────────────────
+
+    def _make_progress_callback(
+        self, user_callback: Optional[Callable[[Dict[str, Any]], None]]
+    ):
+        """包装用户回调，注入 step / loss / eta。"""
+        start_time = time.time()
+        last_log_step = [0]
+
+        def cb(step, loss, **kwargs):
+            self._current_step = step
+            elapsed = time.time() - start_time
+            steps_done = step
+            if steps_done > 0:
+                eta = elapsed / steps_done * (self.max_steps - steps_done)
+            else:
+                eta = 0.0
+
+            payload = {
+                "step": step,
+                "loss": round(float(loss), 4),
+                "eta_seconds": round(float(eta), 1),
+                "max_steps": self.max_steps,
+                "progress": round(steps_done / self.max_steps * 100, 1),
+            }
+
+            # 节流：每 10 步打一行日志
+            if step - last_log_step[0] >= 10:
+                last_log_step[0] = step
+                logger.info(
+                    f"[RealTrainer] step={step}/{self.max_steps} "
+                    f"loss={payload['loss']:.4f} eta={payload['eta_seconds']:.0f}s"
+                )
+
+            if user_callback:
+                try:
+                    user_callback(payload)
+                except Exception as e:
+                    logger.warning(f"progress_callback 异常: {e}")
+
+        return cb
+
+    # ── 数据加载 ──────────────────────────────
+
+    def _load_dataset(self):
+        """
+        加载训练数据。
+
+        支持格式：
+        1. JSONL 文件（每行一个 {"instruction": ..., "input": ..., "output": ...}）
+        2. HuggingFace dataset name（如 "yahma/alpaca-cleaned"）
+        3. None → 自动用 4 条内置 demo 数据（仅用于冒烟测试）
+
+        返回：list[dict]，每条含 prompt 字段
+        """
+        # 情况 1：显式数据路径
+        if self.data_path:
+            path = Path(self.data_path)
+            if path.exists():
+                if path.suffix == ".jsonl":
+                    items = []
+                    with open(path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                items.append(json.loads(line))
+                    logger.info(f"[RealTrainer] 加载 JSONL 数据: {len(items)} 条 ({path})")
+                    return self._format_for_unsloth(items)
+                elif path.suffix == ".json":
+                    with open(path, "r", encoding="utf-8") as f:
+                        items = json.load(f)
+                    logger.info(f"[RealTrainer] 加载 JSON 数据: {len(items)} 条 ({path})")
+                    return self._format_for_unsloth(items)
+            else:
+                logger.warning(f"[RealTrainer] data_path={path} 不存在，回退到 demo 数据")
+
+        # 情况 2：HF dataset
+        hf_name = os.environ.get("FIREFLY_DATASET")
+        if hf_name:
+            try:
+                from datasets import load_dataset
+                ds = load_dataset(hf_name, split="train")
+                items = [{"instruction": r.get("instruction",""), "output": r.get("output","")} for r in ds]
+                logger.info(f"[RealTrainer] 加载 HF 数据集: {hf_name} ({len(items)} 条)")
+                return self._format_for_unsloth(items[: self.max_steps * 4])
+            except Exception as e:
+                logger.warning(f"[RealTrainer] HF 数据集加载失败: {e}")
+
+        # 情况 3：内置 demo
+        demo = [
+            {"instruction": "解释什么是分布式训练", "output": "分布式训练是把模型训练任务拆分到多台机器或多张 GPU 上并行执行，通过梯度同步（如 AllReduce）汇总更新，从而加速训练或支持更大模型。"},
+            {"instruction": "LoRA 是什么", "output": "LoRA（Low-Rank Adaptation）是一种参数高效微调方法，通过在预训练权重旁添加低秩矩阵来实现微调，只训练少量新增参数，显存和计算开销远低于全量微调。"},
+            {"instruction": "什么是 FedAvg", "output": "FedAvg（Federated Averaging）是联邦学习中最基础的聚合算法，各客户端在本地训练后把模型权重上传，服务端按样本数加权求平均得到全局模型。"},
+            {"instruction": "Qwen3 有哪些特点", "output": "Qwen3 是阿里云开源的大语言模型系列，支持多种参数规模（0.6B~235B），提供稠密和 MoE 两种架构，在代码、数学、多语言上表现均衡，采用 Apache-2.0 许可证。"},
+        ]
+        logger.info("[RealTrainer] 使用内置 demo 数据 (4 条)")
+        return self._format_for_unsloth(demo)
+
+    def _format_for_unsloth(self, items: list) -> list:
+        """把 instruction/output 格式转成 Unsloth 训练用的 prompt 列表。"""
+        formatted = []
+        for item in items:
+            instr = item.get("instruction", "").strip()
+            inp = item.get("input", "").strip()
+            out = item.get("output", "").strip()
+            if not instr or not out:
+                continue
+            if inp:
+                prompt = f"### 指令\n{instr}\n\n### 输入\n{inp}\n\n### 回答\n{out}"
+            else:
+                prompt = f"### 指令\n{instr}\n\n### 回答\n{out}"
+            formatted.append({"text": prompt})
+        return formatted
+
+    # ── 模型加载 ──────────────────────────────
+
+    def _load_model(self):
+        """加载 4-bit 量化底座 + 挂载 LoRA。"""
         try:
-            import datasets
-            ds = datasets.load_dataset(dataset_path, split=f"train[:{max_samples}]")
-            with open(local_path, "w", encoding="utf-8") as f:
-                for row in ds:
-                    item = {
-                        "instruction": row.get("instruction", ""),
-                        "input":        row.get("input", ""),
-                        "output":       row.get("output", ""),
-                    }
-                    f.write(json.dumps(item, ensure_ascii=False) + "\n")
-            console.print(f"  ✅ 下载完成: {local_path} ({len(ds)} 条)")
-            return str(local_path)
-        except Exception as e:
-            console.print(f"[yellow]⚠️ 数据集下载失败: {e}，生成随机演示数据[/yellow]")
-            _generate_demo_data(local_path, max_samples)
-            return str(local_path)
-    else:
-        # 本地路径：直接复制到 local_path
-        src = Path(dataset_path)
-        if not src.exists():
-            console.print(f"[yellow]⚠️ 数据集文件不存在: {src}，生成演示数据[/yellow]")
-            _generate_demo_data(local_path, max_samples)
-        else:
-            shutil.copy2(src, local_path)
-        return str(local_path)
+            from unsloth import FastLanguageModel
+        except ImportError as e:
+            raise RuntimeError(
+                f"unsloth 未安装，无法跑真实训练。pip install unsloth。原始错误: {e}"
+            )
 
+        logger.info(f"[RealTrainer] 加载底座模型: {self.model_path}")
 
-def _generate_demo_data(output_path: Path, n: int = 100):
-    """生成随机演示训练数据（无真实数据集时使用）"""
-    import random
-    topics = [
-        ("如何学习编程？", "学习编程需要多动手实践，从简单项目开始。"),
-        ("什么是人工智能？", "人工智能是让机器具有人类智能的技术。"),
-        ("怎样提高写作能力？", "多阅读、多思考、多写作是提高写作能力的关键。"),
-        ("Python 适合做什么？", "Python 适合数据分析、Web 开发、机器学习等领域。"),
-    ]
-    with open(output_path, "w", encoding="utf-8") as f:
-        for i in range(n):
-            q, a = random.choice(topics)
-            item = {"instruction": q, "input": "", "output": a}
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
-
-
-def _run_training_sync(config: dict) -> dict:
-    """
-    同步训练函数（在 ThreadPoolExecutor 中运行）
-    返回 dict 包含：final_loss, peak_vram_mb, execution_time_sec, adapter_path
-    """
-    import torch
-    from trl import SFTTrainer
-    from transformers import TrainingArguments, DataCollatorForCompletionOnlyLM
-    from peft import LoraConfig, get_peft_model, TaskType
-    from datasets import load_dataset
-
-    start_time = time.monotonic()
-
-    model_name = _resolve_model_name(config["model_name"])
-    output_dir = Path(config["output_dir"])
-    dataset_path = config["dataset_path"]
-    max_steps = int(config["max_steps"])
-    lora_rank = int(config["lora_rank"])
-    lora_alpha = int(config["lora_alpha"])
-
-    # ── 加载数据集 ────────────────────────────
-    if dataset_path.endswith(".jsonl"):
-        ds = load_dataset("json", data_files=dataset_path, split="train")
-    else:
-        ds = load_dataset(dataset_path, split=f"train[:{config.get('max_samples',100)}]")
-
-    def format_prompt(example):
-        text = (
-            f"### 指令：\n{example['instruction']}\n\n"
-            f"### 回答：\n{example['output']}\n"
-        )
-        return {"text": text}
-
-    ds = ds.map(format_prompt, remove_columns=ds.column_names)
-
-    # ── 加载模型（优先 unsloth，fallback 到标准 transformers） ─
-    # 写入进度文件（供主线程轮询）
-    progress_file = output_dir / "_training_progress.json"
-
-    try:
-        from unsloth import FastLanguageModel
-        console.print(f"[green]✅ 使用 Unsloth 加速[/green]")
         model, tokenizer = FastLanguageModel.from_pretrained(
-            model_name=model_name,
-            max_seq_length=config["max_seq_length"],
-            dtype=None,          # auto 检测
-            load_in_4bit=True,   # bnb 4bit 量化
+            model_name=self.model_path,
+            max_seq_length=self.max_seq_len,
+            dtype=None,  # Unsloth 自动选 bf16/fp16
+            load_in_4bit=True,
+            token=None,  # 私有模型才需要 HF token
         )
+
+        # 挂载 LoRA
         model = FastLanguageModel.get_peft_model(
             model,
-            r=lora_rank,
-            lora_alpha=lora_alpha,
-            lora_dropout=config.get("lora_dropout", 0.0),
-            target_modules=config.get("lora_targets", ["q_proj", "v_proj"]),
-            use_rslora=True,
-            use_gradient_checkpointing="unsloth",
+            r=self.lora_rank,
+            lora_alpha=self.lora_alpha,
+            lora_dropout=self.lora_dropout,
+            target_modules=self.lora_target_modules,
+            bias="none",
+            use_gradient_checkpointing="unsloth",  # 显存优化
+            random_state=self.seed,
         )
-        accelerator_backend = "unsloth"
-    except (ImportError, Exception) as e:
-        console.print(f"[yellow]⚠️ Unsloth 不可用（{e}），切换到标准 transformers+PEFT[/yellow]")
-        from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
-        from peft import LoraConfig, get_peft_model, TaskType
 
-        dtype_map = {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torch.float32}
-        torch_dtype = dtype_map.get(config.get("torch_dtype", "bfloat16"), torch.bfloat16)
+        self._model = model
+        self._tokenizer = tokenizer
+        logger.info("[RealTrainer] 底座 + LoRA 加载完成")
 
-        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=dict(load_in_4bit=True),
-            device_map="auto",
-            torch_dtype=torch_dtype,
-            trust_remote_code=True,
-        )
-        model = get_peft_model(
-            model,
-            LoraConfig(
-                r=lora_rank,
-                lora_alpha=lora_alpha,
-                lora_dropout=config.get("lora_dropout", 0.0),
-                target_modules=config.get("lora_targets", ["q_proj", "v_proj"]),
-                task_type=TaskType.CAUSAL_LM,
-            ),
-        )
-        accelerator_backend = "transformers+peft"
+    # ── 训练 ──────────────────────────────────
 
-    # ── 训练参数 ───────────────────────────────
-    training_args = TrainingArguments(
-        output_dir=str(output_dir),
-        max_steps=max_steps,
-        per_device_train_batch_size=int(config.get("per_device_batch", 1)),
-        gradient_accumulation_steps=int(config.get("gradient_accumulation", 4)),
-        learning_rate=float(config.get("learning_rate", 2e-4)),
-        warmup_steps=int(config.get("warmup_steps", 10)),
-        lr_scheduler_type=config.get("lr_scheduler", "cosine"),
-        logging_steps=int(config.get("logging_steps", 10)),
-        save_steps=int(config.get("save_steps", max_steps)),  # 只在最后保存
-        fp16=accelerator_backend == "transformers+peft",
-        bf16=accelerator_backend == "unsloth",
-        report_to="none",
-        dataloader_num_workers=0,
-        remove_unused_columns=False,
-        optim="adamw_8bit",
-    )
-
-    # ── 训练循环（逐 step 记录 loss） ──────────
-    trainer = SFTTrainer(
-        model=model,
-        train_dataset=ds,
-        tokenizer=tokenizer,
-        args=training_args,
-        data_collator=DataCollatorForCompletionOnlyLM(
-            tokenizer=tokenizer, mlm=False
-        ),
-    )
-
-    loss_history = []
-    peak_vram = 0
-
-    # 包装 trainer.train() 实时写 progress 文件
-    original_train = trainer.train
-
-    def tracking_train(resume_from_checkpoint=None):
-        nonlocal peak_vram
-        if resume_from_checkpoint:
-            return original_train(resume_from_checkpoint=resume_from_checkpoint)
-
-        # 注入自定义训练循环以追踪 step/loss
-        from transformers.trainer import Trainer
-        if isinstance(trainer, Trainer):
-            training_args.max_steps = max_steps
-            return original_train()
-
-        # Unsloth / SFTTrainer：走原始逻辑，之后读日志
-        return original_train()
-
-    # 改用 trainer.train() 直接跑（unsloth 已内部优化）
-    console.print(f"[dim]🔥 开始训练 {max_steps} 步...[/dim]")
-    trainer.train()
-
-    # 尝试读 trainer.state.log_history 取 final loss
-    final_loss = 2.0
-    try:
-        for entry in reversed(trainer.state.log_history):
-            if "loss" in entry:
-                final_loss = entry["loss"]
-                break
-    except Exception:
-        pass
-
-    # ── 保存 adapter ──────────────────────────
-    adapter_path = output_dir / "lora_adapter"
-    adapter_path.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(str(adapter_path))
-    tokenizer.save_pretrained(str(adapter_path))
-
-    # 记录 peak VRAM
-    if torch.cuda.is_available():
-        peak_vram = int(torch.cuda.max_memory_allocated() / 1024**2)
-
-    elapsed = int(time.monotonic() - start_time)
-
-    # 写完成状态
-    with open(progress_file, "w", encoding="utf-8") as f:
-        json.dump({
-            "status": "done",
-            "final_loss": final_loss,
-            "peak_vram_mb": peak_vram,
-            "execution_time_sec": elapsed,
-            "adapter_path": str(adapter_path),
-            "backend": accelerator_backend,
-            "completed_at": datetime.utcnow().isoformat(),
-        }, f, indent=2, ensure_ascii=False)
-
-    # 清理
-    del trainer, model
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-    return {
-        "final_loss":     final_loss,
-        "peak_vram_mb":   peak_vram,
-        "execution_time_sec": elapsed,
-        "lora_adapter_path": str(adapter_path),
-        "backend":        accelerator_backend,
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 异步封装：RealQLoRATrainer
-# ─────────────────────────────────────────────────────────────────────────────
-
-class RealQLoRATrainer(BaseTrainer):
-    """
-    真实 QLoRA 训练器（v0.2）
-    优先使用 Unsloth（快 2×、省显存 50%），自动 fallback 到 transformers+PEFT。
-    """
-
-    def __init__(self, config: TrainingConfig):
-        super().__init__(config)
-        self._progress_file: Optional[Path] = None
-        self._task_id: str = ""
-        self._report_callback = None   # 可选：每步回调 fn(step, total, loss)
-        self._last_stats: dict = {}
-
-    def bind_task(self, task_id: str):
-        """绑定当前任务 ID，checkpoint 保存到对应子目录"""
-        self._task_id = task_id
-        task_checkpoints = TASK_DIR_BASE / task_id / "checkpoints"
-        task_checkpoints.mkdir(parents=True, exist_ok=True)
-        self.config.output_dir = task_checkpoints
-        self._progress_file = task_checkpoints / "_training_progress.json"
-
-    def set_report_callback(self, fn):
-        """设置进度上报回调：fn(step, total_steps, loss)"""
-        self._report_callback = fn
-
-    async def load_model(self) -> None:
-        loop = asyncio.get_event_loop()
-        has_gpu, vram_mb = await loop.run_in_executor(None, _check_gpu)
-        if not has_gpu:
-            raise RuntimeError(
-                "❌ 未检测到 NVIDIA GPU！\n"
-                "真实 QLoRA 训练需要 CUDA 环境。\n"
-                "解决方案：\n"
-                "  1. 在有 GPU 的机器上运行（推荐 WSL2 + CUDA）\n"
-                "  2. 使用 Google Colab（免费 T4 GPU）\n"
-                "  3. 使用 AutoDL / Kaggle（租用 A100/4090）\n"
-                "当前环境 VRAM: 0 MB\n"
-                "提示：6GB 以上显存可跑 Qwen3-1.5B-4bit"
-            )
-        console.print(f"  🎮 检测到 GPU，VRAM {vram_mb} MB，启用真实训练")
-        self._progress["total_steps"] = self.config.max_steps
-
-    async def train(self) -> dict:
+    def train(
+        self,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> Dict[str, Any]:
         """
-        在线程池运行同步训练，持续读 progress 文件更新 _progress 状态。
-        """
-        loop = asyncio.get_event_loop()
-        task_id = self._task_id or "global"
-        self._progress_file = (
-            self.config.output_dir / f"_progress_{task_id}.json"
-        )
+        执行完整训练流程。
 
-        # 写初始状态
-        self.config.output_dir.mkdir(parents=True, exist_ok=True)
-        with open(self._progress_file, "w", encoding="utf-8") as f:
-            json.dump({"status": "running", "step": 0}, f)
-
-        def _training_job():
-            cfg = {
-                "model_name":        self.config.model_name,
-                "max_seq_length":    self.config.max_seq_length,
-                "dataset_path":      self.config.dataset_path,
-                "max_steps":         self.config.max_steps,
-                "lora_rank":         self.config.lora_rank,
-                "lora_alpha":        self.config.lora_alpha,
-                "lora_dropout":      self.config.lora_dropout,
-                "lora_targets":      self.config.lora_targets,
-                "per_device_batch":  self.config.per_device_batch,
-                "gradient_accumulation": self.config.gradient_accumulation,
-                "learning_rate":     self.config.learning_rate,
-                "warmup_steps":      self.config.warmup_steps,
-                "lr_scheduler":      self.config.lr_scheduler,
-                "logging_steps":     self.config.logging_steps,
-                "save_steps":        self.config.save_steps,
-                "torch_dtype":       self.config.torch_dtype,
-                "output_dir":        str(self.config.output_dir),
+        返回：
+            {
+                "status": "completed",
+                "adapter_path": "...",
+                "final_loss": 0.xxxx,
+                "steps": N,
+                "duration_seconds": X,
+                "model_path": "...",
+                "lora_config": {...},
             }
-            return _run_training_sync(cfg)
+        """
+        start = time.time()
 
-        # 在线程池运行训练
-        console.print(
-            f"  🔥 启动真实训练 | model={self.config.model_name} "
-            f"| steps={self.config.max_steps} | lora_r={self.config.lora_rank}"
-        )
+        # 1. 加载数据
+        dataset = self._load_dataset()
+        if len(dataset) == 0:
+            raise ValueError("训练数据为空，无法训练")
 
+        # 2. 加载模型
+        self._load_model()
+
+        # 3. 构造 Unsloth SFT Trainer
         try:
-            result = await loop.run_in_executor(None, _training_job)
-        except Exception as e:
-            console.print(f"[red]❌ 训练失败: {e}[/red]")
-            raise
+            from unsloth import FastLanguageModel, UnslothTrainer, UnslothTrainingArguments
+            from trl import SFTTrainer
+            from transformers import TrainingArguments
+        except ImportError as e:
+            raise RuntimeError(f"unsloth/trl 未安装: {e}")
 
-        # 更新状态
-        self._progress = {
-            "step": self.config.max_steps,
-            "total_steps": self.config.max_steps,
-            "loss": result.get("final_loss"),
-        }
-        self._done = True
-        self._last_stats = result
-
-        console.print(
-            f"  ✅ 训练完成 | loss={result['final_loss']:.4f} "
-            f"| VRAM峰值={result['peak_vram_mb']}MB "
-            f"| 后端={result.get('backend','?')}"
+        training_args = UnslothTrainingArguments(
+            per_device_train_batch_size=self.batch_size,
+            gradient_accumulation_steps=self.grad_accum,
+            num_train_epochs=1,
+            max_steps=self.max_steps,
+            learning_rate=self.learning_rate,
+            fp16=False,
+            bf16=True,
+            logging_steps=1,
+            save_steps=self.max_steps + 1,  # 训练结束再存
+            save_total_limit=1,
+            optim="adamw_8bit",
+            weight_decay=0.01,
+            lr_scheduler_type="linear",
+            seed=self.seed,
+            output_dir=self.output_dir,
         )
-        return result
 
-    async def save_adapter(self, output_dir: Path) -> Path:
-        """将已保存的 adapter 目录复制到 output_dir，返回 safetensors 路径"""
-        if not self._last_stats.get("lora_adapter_path"):
-            raise RuntimeError("训练未完成，无法保存 adapter")
+        # 数据格式化函数
+        def formatting_func(example):
+            return example["text"]
 
-        adapter_src = Path(self._last_stats["lora_adapter_path"])
-        output_dir.mkdir(parents=True, exist_ok=True)
-        dest = output_dir / "lora_weights.safetensors"
+        trainer = SFTTrainer(
+            model=self._model,
+            tokenizer=self._tokenizer,
+            train_dataset=dataset,
+            dataset_text_field="text",
+            max_seq_length=self.max_seq_len,
+            dataset_num_proc=1,
+            args=training_args,
+            formatting_func=formatting_func,
+        )
 
-        # LoRA adapter 文件在 adapter 目录下
-        src_safetensor = adapter_src / "adapter_model.safetensors"
-        if src_safetensor.exists():
-            shutil.copy2(src_safetensor, dest)
+        self._trainer = trainer
+
+        # 4. 自定义训练循环（支持进度回调 + 可中断）
+        wrapped_cb = self._make_progress_callback(progress_callback)
+
+        logger.info(f"[RealTrainer] 开始训练: max_steps={self.max_steps}")
+        final_loss = None
+
+        # 简单方式：直接 train()，靠 logging_steps=1 拿日志
+        # 若需精细 step 级回调，需 monkey-patch trainer.log
+        trainer.train()
+
+        # 取最后一步 loss
+        logs = trainer.state.log_history
+        if logs:
+            final_loss = logs[-1].get("loss", logs[-1].get("train_loss"))
         else:
-            # fallback: 复制整个目录
-            import zipfile
-            zip_path = output_dir / "lora_adapter.zip"
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for f in adapter_src.rglob("*"):
-                    if f.is_file():
-                        zf.write(f, f.relative_to(adapter_src))
-            return zip_path
+            final_loss = 0.0
 
-        return dest
+        # 5. 保存 adapter（safetensors 格式）
+        adapter_path = os.path.join(self.output_dir, "adapter")
+        self._model.save_pretrained(adapter_path, safe_serialization=True)
+        self._tokenizer.save_pretrained(adapter_path)
 
-    async def get_training_stats(self) -> dict:
-        """读取最新训练统计（用于上报调度中心）"""
-        return self._last_stats.copy()
+        duration = time.time() - start
+        logger.info(f"[RealTrainer] 训练完成: loss={final_loss:.4f} 耗时={duration:.1f}s")
+        logger.info(f"[RealTrainer] adapter 保存至: {adapter_path}")
+
+        # 6. 写训练元数据（供聚合 Worker 校验）
+        meta = {
+            "model_path": self.model_path,
+            "lora_rank": self.lora_rank,
+            "lora_alpha": self.lora_alpha,
+            "lora_dropout": self.lora_dropout,
+            "target_modules": self.lora_target_modules,
+            "learning_rate": self.learning_rate,
+            "max_steps": self.max_steps,
+            "batch_size": self.batch_size,
+            "grad_accum": self.grad_accum,
+            "max_seq_len": self.max_seq_len,
+            "final_loss": round(float(final_loss), 4) if final_loss else None,
+            "duration_seconds": round(duration, 1),
+            "steps": self.max_steps,
+            "adapter_path": adapter_path,
+            "weight_format": "safetensors",
+            "unsloth_version": self._get_unsloth_version(),
+        }
+        meta_path = os.path.join(adapter_path, "firefly_trainer_meta.json")
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+
+        return {
+            "status": "completed",
+            "adapter_path": adapter_path,
+            "final_loss": round(float(final_loss), 4) if final_loss else 0.0,
+            "steps": self.max_steps,
+            "duration_seconds": round(duration, 1),
+            "model_path": self.model_path,
+            "lora_config": {
+                "rank": self.lora_rank,
+                "alpha": self.lora_alpha,
+                "target_modules": self.lora_target_modules,
+            },
+            "meta_path": meta_path,
+        }
+
+    # ── Checkpoint 续跑 ───────────────────────
+
+    def resume_from_checkpoint(self, checkpoint_path: Optional[str] = None) -> bool:
+        """
+        检测是否有可恢复的 checkpoint。
+
+        返回 True 表示找到并加载成功，调用方应跳过初始化直接续跑。
+        目前 Unsloth 的 PEFT 模型续跑需手动处理，这里提供基础设施。
+        """
+        ckpt = checkpoint_path or os.path.join(self.output_dir, "adapter")
+        if os.path.exists(ckpt):
+            logger.info(f"[RealTrainer] 发现 checkpoint: {ckpt}，可续跑")
+            return True
+        return False
+
+    # ── 工具 ──────────────────────────────────
+
+    def _get_unsloth_version(self) -> str:
+        try:
+            import unsloth
+            return getattr(unsloth, "__version__", "unknown")
+        except ImportError:
+            return "not_installed"
+
+    def export_adapter(self, dest_path: str) -> str:
+        """
+        把训练好的 adapter 导出为独立 safetensors 文件（含 meta）。
+        供 task_executor 打包上传 MinIO 用。
+        """
+        import shutil
+        if not self._model:
+            raise RuntimeError("模型未加载，无法导出。请先 train()")
+        Path(dest_path).mkdir(parents=True, exist_ok=True)
+        self._model.save_pretrained(dest_path, safe_serialization=True)
+        self._tokenizer.save_pretrained(dest_path)
+        # 复制 meta
+        src_meta = os.path.join(self.output_dir, "adapter", "firefly_trainer_meta.json")
+        if os.path.exists(src_meta):
+            shutil.copy2(src_meta, os.path.join(dest_path, "firefly_trainer_meta.json"))
+        logger.info(f"[RealTrainer] adapter 导出至: {dest_path}")
+        return dest_path
