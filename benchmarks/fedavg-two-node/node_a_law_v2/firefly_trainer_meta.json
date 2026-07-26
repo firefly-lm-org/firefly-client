@@ -1,0 +1,19 @@
+{
+  "task_name": "node_a_law",
+  "node_id": "node_a_law",
+  "algorithm": "qft",
+  "base_model": "/root/models/models/Qwen--Qwen2.5-1.5B-Instruct/snapshots/master",
+  "lora_rank": 8,
+  "lora_alpha": 16,
+  "lora_targets": "q_proj,v_proj,k_proj,o_proj,gate_proj,up_proj,down_proj",
+  "max_seq_length": 512,
+  "max_steps": 60,
+  "learning_rate": 0.0002,
+  "batch_size": 1,
+  "grad_accum": 4,
+  "final_train_loss": 0.0239,
+  "train_elapsed_seconds": 43.4,
+  "dataset_size": 10,
+  "dataset_source": "/root/firefly-client/data/law_qa.jsonl",
+  "note": "v0.3 - 7 target_modules, aligned for FedAvg"
+}
