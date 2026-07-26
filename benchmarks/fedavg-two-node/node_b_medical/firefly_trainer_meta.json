@@ -1,0 +1,18 @@
+{
+  "task_name": "node_b_medical",
+  "node_id": "node-b-medical",
+  "algorithm": "qft",
+  "base_model": "/root/models/models/Qwen--Qwen2.5-1.5B-Instruct/snapshots/master",
+  "lora_rank": 8,
+  "lora_alpha": 16,
+  "max_seq_length": 512,
+  "max_steps": 60,
+  "learning_rate": 0.0002,
+  "batch_size": 1,
+  "grad_accum": 4,
+  "final_train_loss": 0.206,
+  "train_elapsed_seconds": 38.0,
+  "dataset_size": 31,
+  "dataset_source": "/root/firefly-client/data/medical_qa.jsonl",
+  "note": "v0.3 Node B - medical QA, FedAvg heterogeneous pair"
+}
