@@ -1,0 +1,15 @@
+# Firefly Client - Mock/CPU Requirements
+# Use this when your machine has no NVIDIA GPU or you want to test the CLI.
+# No PyTorch required.
+#
+# Install:
+#   pip install -r requirements-mock.txt
+#
+# Usage:
+#   FIREFLY_MOCK=1 firefly start   # Run with simulated training
+
+click>=8.1.0
+pydantic>=2.0.0
+requests>=2.31.0
+bcrypt==4.0.1
+python-dotenv>=1.0.0
