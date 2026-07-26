@@ -1,0 +1,5 @@
+{
+  "description": "Firefly LM 基准测试结果存档",
+  "note": "每次真实训练跑通后，在此记录关键指标（VRAM / loss / 耗时 / 硬件环境）",
+  "entries": []
+}
