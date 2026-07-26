@@ -1,0 +1,16 @@
+{
+  "model_path": "/root/models/models/Qwen--Qwen2.5-1.5B-Instruct/snapshots/master",
+  "lora_r": 8,
+  "lora_alpha": 16,
+  "max_steps": 60,
+  "learning_rate": 0.0002,
+  "final_train_loss": -1.0,
+  "training_time_s": 51.4,
+  "adapter_dir": "/root/.firefly/train_output/adapter",
+  "artifacts": {
+    "adapter_model.safetensors": true,
+    "adapter_config.json": true,
+    "firefly_trainer_meta.json": true,
+    "tokenizer_files": true
+  }
+}
