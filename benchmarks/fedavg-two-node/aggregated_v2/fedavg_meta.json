@@ -1,0 +1,7 @@
+{
+  "algorithm": "fedavg",
+  "weight_a": 0.5,
+  "weight_b": 0.5,
+  "num_tensors": 392,
+  "note": "v0.3 - 7 target_modules aligned"
+}
