@@ -171,14 +171,15 @@ class RealTrainer:
         logger.info("[RealTrainer] start training")
         trainer.train()
 
-        # ---------- 导出 safetensors + meta ----------
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        adapter_path = os.path.join(OUTPUT_DIR, "adapter")
+        # ---------- 导出 safetensors + meta（按 task_id 分目录，避免多节点互相覆盖）----------
+        run_dir = os.path.join(OUTPUT_DIR, self.task_id)
+        os.makedirs(run_dir, exist_ok=True)
+        adapter_path = os.path.join(run_dir, "adapter")
         self.model.save_pretrained(adapter_path)
         self.tokenizer.save_pretrained(adapter_path)
 
         # 转纯 safetensors（Peft 默认存 bin，fallback 用 state_dict 写）
-        safetensors_path = os.path.join(OUTPUT_DIR, "lora.safetensors")
+        safetensors_path = os.path.join(run_dir, "lora.safetensors")
         try:
             self.model.save_pretrained(safetensors_path)
         except Exception:
@@ -206,6 +207,7 @@ class RealTrainer:
             "lr": LR,
             "max_steps": MAX_STEPS,
             "final_loss": final_loss,
+            "adapter_path": safetensors_path,
             "elapsed_sec": round(time.time() - self.start_time, 1),
             "framework": "unsloth+peft+trl",
             "torch_version": torch.__version__,
@@ -213,7 +215,7 @@ class RealTrainer:
             if torch.cuda.is_available()
             else 0,
         }
-        meta_path = os.path.join(OUTPUT_DIR, "firefly_trainer_meta.json")
+        meta_path = os.path.join(run_dir, "firefly_trainer_meta.json")
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
 
