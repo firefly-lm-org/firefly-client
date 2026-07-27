@@ -207,6 +207,7 @@ def run_real_training(
         "final_loss": float(meta.get("final_loss", 0.0)),
         "elapsed_sec": float(meta.get("elapsed_sec", 0.0)),
         "peak_vram_mb": int(float(meta.get("vram_gb", 0.0)) * 1024),
+        "adapter_path": meta.get("adapter_path", ""),
     }
 
 
@@ -303,6 +304,9 @@ def execute_one_round(
     except Exception as e:
         print(f"  [train] 训练异常: {e}")
         return False
+
+    if not use_mock and stats.get("adapter_path"):
+        print(f"  [train] 权重已保存: {stats['adapter_path']}")
 
     ok = complete_task(server_url, node_token, task_id, stats.get("final_loss", 0.0))
     return ok
