@@ -111,8 +111,8 @@ def register(server_url: str, username: str, email: str, password: str) -> bool:
     if status in (200, 201):
         print(f"  [auth] 注册成功: {username}")
         return True
-    # 409 已存在也算 OK（稍后直接登录）
-    if status == 409:
+    # 409 / 400 均表示用户名已存在（服务器返回 400 'Username taken'），视为已注册
+    if status in (409, 400):
         return True
     print(f"  [auth] 注册失败 ({status}): {body.get('detail', body)}")
     return False
