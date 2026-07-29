@@ -164,6 +164,13 @@ firefly-node chat --adapter my_product.safetensors
 # 挂到爱发电/淘宝/知识星球
 ```
 
+## 相关文档
+
+- [学生创业合作政策](student_partner_policy.md) — 合作模式、角色定位、红线
+- [Demo Guide](demo_guide.md) — Day 1 课程
+- [Day 2](day2_train_local.md) — 训练你的第一个适配器
+- [FAQ](faq.md) — 常见问题
+
 ## 一句话
 
 火种给你的不是"一个工具"，是一条从学习到变现的路径：学联邦学习 → 训练垂直 LoRA → 挂网卖适配器 → 帮机构部署联邦。35MB 的适配器文件就是你的产品。
