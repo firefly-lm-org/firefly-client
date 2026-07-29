@@ -318,6 +318,23 @@ def run_demo(domain: str = "law", num_nodes: int = 4, steps: int = 5, output_dir
     agg_output = os.path.join(output_dir, "aggregated.safetensors")
     agg_sha = fedavg_weighted(adapter_paths, signals, agg_output)
 
+    # Generate manifest for verify command
+    manifest = {
+        "sha256": agg_sha,
+        "round_id": f"demo_{domain}_r1",
+        "domain": domain,
+        "node_ids": [s["node_id"] for s in signals],
+        "task_ids": [s["task_id"] for s in signals],
+        "aggregation_method": "FedAvg (weighted)",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "num_nodes": num_nodes,
+        "steps": steps,
+    }
+    manifest_path = os.path.join(output_dir, "aggregated_manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    print(f"  Manifest: {manifest_path}")
+
     # ── Step 6: Mock evaluation ──
     print("\n[6/7] 模拟评估 (关键词覆盖)...")
     holdout_path = PROJECT_ROOT / "data" / f"{domain}_holdout.jsonl"
@@ -380,8 +397,10 @@ def run_demo(domain: str = "law", num_nodes: int = 4, steps: int = 5, output_dir
     print()
     print("  下一步:")
     print(f"    firefly-node chat --adapter {output_dir}/aggregated.safetensors")
+    print(f"    firefly-node verify --adapter {output_dir}/aggregated.safetensors")
     print(f"    查看 docs/demo_guide.md 了解每一步的原理")
     print(f"    用你自己的数据: firefly-node train-local --dataset my_data.jsonl")
+    print(f"    创业指南: docs/student_entrepreneur_guide.md")
     print("=" * 60)
 
     return True

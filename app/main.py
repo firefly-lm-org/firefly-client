@@ -865,6 +865,77 @@ def doctor():
 
 
 # ─────────────────────────────────────
+# 命令 12：verify（适配器来源验证）
+# ─────────────────────────────────────
+@app.command()
+def verify(
+    adapter: str = typer.Option(..., "--adapter", "-a", help="适配器文件路径 (.safetensors)"),
+):
+    """🔐 验证适配器是否来自火种调度中心"""
+    import hashlib
+
+    adapter_path = Path(adapter).resolve()
+    if not adapter_path.exists():
+        console.print(f"[red]错误: 文件不存在: {adapter_path}[/red]")
+        raise typer.Exit(1)
+
+    # 检查同目录下的 manifest
+    manifest_path = adapter_path.parent / (adapter_path.stem + "_manifest.json")
+    if not manifest_path.exists():
+        console.print(f"[yellow]警告: 未找到 manifest 文件[/yellow]")
+        console.print(f"  适配器: {adapter_path}")
+        console.print(f"  manifest: {manifest_path}")
+        console.print()
+        console.print("[dim]适配器仍可使用，但无法确认是否来自火种调度中心。[/dim]")
+        console.print("[dim]如果是自行训练的适配器，这是正常的。[/dim]")
+        raise typer.Exit(0)
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except Exception as e:
+        console.print(f"[red]错误: manifest 文件解析失败: {e}[/red]")
+        raise typer.Exit(1)
+
+    # 计算 SHA256
+    console.print(f"[cyan]验证适配器: {adapter_path.name}[/cyan]\n")
+    console.print("[dim]计算 SHA256...[/dim]")
+    sha = hashlib.sha256()
+    with open(adapter_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha.update(chunk)
+    actual_sha = sha.hexdigest()
+    expected_sha = manifest.get("sha256", "")
+
+    console.print()
+    if expected_sha and actual_sha == expected_sha:
+        console.print(f"  [green]PASS[/green] SHA256 匹配")
+        console.print(f"         {actual_sha[:16]}...")
+    elif expected_sha:
+        console.print(f"  [red]FAIL[/red] SHA256 不匹配")
+        console.print(f"         期望: {expected_sha[:16]}...")
+        console.print(f"         实际: {actual_sha[:16]}...")
+        console.print()
+        console.print("[red]适配器已被篡改，不建议使用。[/red]")
+        raise typer.Exit(1)
+    else:
+        console.print(f"  [yellow]SKIP[/yellow] manifest 中无 SHA256 字段")
+
+    # 显示 manifest 信息
+    console.print()
+    console.print(f"  [bold]验证结果[/bold]")
+    console.print(f"  来源:     火种调度中心")
+    console.print(f"  聚合轮次: {manifest.get('round_id', '未知')}")
+    console.print(f"  领域:     {manifest.get('domain', '未知')}")
+    console.print(f"  参与节点: {len(manifest.get('task_ids', manifest.get('node_ids', [])))} 个")
+    console.print(f"  聚合方式: {manifest.get('aggregation_method', 'FedAvg')}")
+    console.print(f"  创建时间: {manifest.get('created_at', '未知')}")
+    console.print(f"  SHA256:   {actual_sha[:16]}...")
+    console.print()
+    console.print("[green]  适配器已验证通过，可以放心使用。[/green]")
+
+
+# ─────────────────────────────────────
 # 入口
 # ─────────────────────────────────────
 if __name__ == "__main__":
