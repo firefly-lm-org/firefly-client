@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Firefly LM · 萤火虫火种</title>
+  <meta name="description" content="300 块月费维持的调度中心，协调全球志愿算力做持续垂直微调。代码免费，服务收费；本机训练，权重归你。" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <span class="logo">Firefly LM</span>
+    <nav>
+      <a href="https://github.com/firefly-lm-org">GitHub</a>
+      <a href="#status">状态</a>
+      <a href="https://afdian.com/a/firefly-lm">赞助</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Firefly LM</h1>
+      <p class="sub">300 块月费维持的调度中心，协调全球志愿算力做持续垂直微调。</p>
+      <p class="meta">代码免费 (MIT) · 本机训练 · 权重归你 · 数据不出本机</p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/firefly-lm-org/firefly-client">开始使用</a>
+        <a class="btn ghost" href="#status">v0.6 已发布</a>
+      </div>
+    </section>
+
+    <section class="what">
+      <p>
+        <strong>萤火虫不是在从零训练大模型。</strong>
+        萤火虫让闲置 GPU 持续贡献 LoRA 微调适配器，通过 FedAvg 聚合成社区共享的领域模型。
+        大厂提供通用底座（Qwen3），萤火虫做持续垂直微调（法律、医疗、教育等）。
+        两者是互补关系，不是替代关系。
+      </p>
+      <p style="margin-top: 12px;">
+        <strong>代码免费，服务收费；本机训练，权重归你。</strong>
+        社区线开源做公共品，Studio 线做本机训练 + 云端卡片。
+        你的数据始终在你本机，只回传脱敏信号（任务 ID + Loss + 样本数），不传原始数据。
+      </p>
+    </section>
+
+    <section id="status" class="status">
+      <h2>当前状态 · v0.6</h2>
+      <ul>
+        <li>✅ 调度中心：FastAPI + SQLite + MinIO，阿里云在线，19 条路由（含 contrib_signal + aggregated）</li>
+        <li>✅ 本地训练：QLoRA 4-bit，Qwen3-1.5B-Instruct，60 步 / 51 秒，loss 1.17→0.68（已验证）</li>
+        <li>✅ 客户端 CLI：train-local / chat / fed 子命令组（claim/train/complete/download/status）</li>
+        <li>✅ 联邦聚合：FedAvg 等权 + 加权，392 tensors / 18MB / F16，4 题推理全对</li>
+        <li>✅ 信号回流：幂等写入，脱敏信号，自动更新信誉分</li>
+        <li>🔄 下一步 v0.7：PyPI 包发布 + 真实多节点联调 + 自动任务生成</li>
+      </ul>
+    </section>
+
+    <section class="links">
+      <h2>资源</h2>
+      <p>
+        <a href="https://github.com/firefly-lm-org/firefly-client">客户端</a> ·
+        <a href="https://github.com/firefly-lm-org/firefly-scheduler">调度中心</a> ·
+        <a href="https://github.com/firefly-lm-org/docs">文档</a> ·
+        <a href="https://github.com/firefly-lm-org/website">官网仓库</a>
+      </p>
+      <p>调度中心地址：<code>http://106.14.220.169:8000</code> · <a href="http://106.14.220.169:8000/docs">API 文档</a></p>
+      <p>赞助：<a href="https://afdian.com/a/firefly-lm">爱发电</a> · 300 块/月维持调度中心运转</p>
+    </section>
+
+    <section class="news" id="news">
+      <h2>动态</h2>
+      <ul class="news-list">
+        <li><span class="news-date">2026-07-29</span><span class="news-tag tag-shipped">v0.6</span><span class="news-text">fed CLI 子命令组上线（claim/train/complete/download/status），Mock 降级</span></li>
+        <li><span class="news-date">2026-07-29</span><span class="news-tag tag-shipped">v0.6</span><span class="news-text">调度中心新增 /contrib_signal + /aggregated 端点，FedExecutor 端点名修复</span></li>
+        <li><span class="news-date">2026-07-29</span><span class="news-tag tag-doc">Doc</span><span class="news-text">外部测试文档发布：getting_started_local.md + rent_card_checklist.md</span></li>
+        <li><span class="news-date">2026-07-28</span><span class="news-tag tag-shipped">Live</span><span class="news-text">QLoRA 训练验证通过：Qwen3-1.5B 4-bit，60 步 51 秒，loss 1.17→0.68</span></li>
+        <li><span class="news-date">2026-07-28</span><span class="news-tag tag-shipped">Live</span><span class="news-text">FedAvg 聚合验证：392 tensors / 18MB / F16，4 题推理全对</span></li>
+        <li><span class="news-date">2026-07-25</span><span class="news-tag tag-doc">Doc</span><span class="news-text">RISK_MANAGEMENT.md + VALUATION_GATES.md 发布</span></li>
+        <li><span class="news-date">2026-07-24</span><span class="news-tag tag-live">Live</span><span class="news-text">firefly-lm.com 部署上线</span></li>
+        <li><span class="news-date">2026-07-15</span><span class="news-tag tag-plan">Plan</span><span class="news-text">v0.7 计划：PyPI 包 + 真实多节点联调 + 自动任务生成</span></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <p>© 2026 Firefly LM Community · <a href="https://github.com/firefly-lm-org">GitHub</a> · <a href="https://afdian.com/a/firefly-lm">赞助</a></p>
+    <p>商业支持：上海凌泷科技有限公司</p>
+    <p>安全联系：security@firefly-lm.com</p>
+  </footer>
+</body>
+</html>

@@ -1,26 +1,68 @@
-# 参与指南
+# 贡献指南
 
-## 谁可以参与
+感谢你对火种 Firefly LM 项目的关注！以下是如何参与贡献的指南。
 
-- 有 NVIDIA GPU（≥8GB VRAM）的开发者
-- 愿意运行 `firefly-node fed start` 并回传 adapter sha256
-- 不要求传原始数据，只传脱敏信号
+## 我能贡献什么
 
-## 如何开始
+| 类型 | 说明 | 难度 |
+|------|------|------|
+| **数据** | 准备领域问答数据（JSONL 格式，≥20 条） | 低 |
+| **训练** | 用你的 GPU 跑一轮训练，回传脱敏信号 | 低 |
+| **测试** | 按文档跑通流程，报告问题 | 低 |
+| **代码** | 修复 Bug、优化体验、实现新功能 | 中 |
+| **文档** | 改进文档、翻译、写教程 | 低 |
+| **推广** | 写使用体验帖、分享给朋友 | 低 |
 
-1. 阅读 [README.md](README.md) 安装客户端
-2. 运行 `firefly-node fed status` 确认连上调度中心
-3. 运行 `firefly-node fed start --domain law --consent`
-4. 把输出的 task_id 和 sha256 贴在 GitHub Issues
+## 快速开始
 
-## 贡献类型
+```bash
+# 1. Fork 仓库
+# 在 GitHub 上点击 Fork
 
-| 类型 | 说明 |
-|------|------|
-| 跑训练 | 用自己显卡跑联邦任务，获得信誉分 |
-| 提数据 | 提供脱敏后的领域数据 |
-| 修代码 | PR 修 bug 或加功能 |
-| 写文档 | 改进 README / 教程 |
+# 2. 克隆你的 Fork
+git clone --depth 1 https://github.com/<你的用户名>/firefly-client.git
+cd firefly-client
+
+# 3. 安装
+pip install -e .
+pip install torch transformers peft accelerate datasets sentencepiece
+
+# 4. 跑通本地训练
+firefly-node train-local --dataset data/law_qa.jsonl --steps 30
+
+# 5. 联邦训练流程
+firefly-node fed status              # 查看调度中心状态
+firefly-node fed claim --domain law   # 认领任务
+firefly-node fed train --task-id <id> --dataset data/law_qa.jsonl --steps 30
+firefly-node fed complete --task-id <id> --loss 0.38 --samples 28
+firefly-node fed download --round 1   # 下载聚合权重
+
+# 6. 创建分支
+git checkout -b fix/my-contribution
+
+# 7. 修改代码
+
+# 8. 提交
+git add -A
+git commit -m "fix: 简短描述你的修改"
+git push origin fix/my-contribution
+
+# 9. 创建 Pull Request
+```
+
+## 提交规范
+
+```
+<type>(<scope>): <description>
+
+type: feat | fix | docs | style | refactor | test | chore
+scope: cli | scheduler | trainer | docs | data
+```
+
+示例：
+- `feat(cli): add fed claim command with mock fallback`
+- `fix(scheduler): add public aggregation download endpoint`
+- `docs: add rent_card_checklist.md`
 
 ## 信誉分规则
 
@@ -35,17 +77,43 @@
 
 信誉分 ≥30 可接高级任务，信誉分 0 永久封禁。
 
-## 本地开发
+## 数据贡献
 
-```bash
-git clone git@github.com:firefly-lm-org/firefly-client.git
-cd firefly-client
-pip install -r requirements.txt
-python -m app.main --help
-pytest tests/
+如果你想贡献领域数据（法律、医疗、教育等）：
+
+1. 准备 JSONL 文件，每行格式：`{"instruction": "...", "output": "..."}`
+2. 至少 20 条，确保内容准确、无版权问题
+3. 提交到 `data/` 目录
+4. PR 标题：`data: add <domain> dataset (<count> items)`
+
+## 签署 CLA
+
+提交 PR 前，请阅读并同意 [CLA.md](CLA.md)（贡献者许可协议）。在 PR 描述中添加：
+
+```
+I have read and agree to the CLA.
 ```
 
-## 联系方式
+## 代码风格
 
-- GitHub Issues：bug 报告 / 功能请求
-- GitHub Discussions：讨论 / 问答
+- Python 3.10+
+- 类型标注（typing）
+- 中文注释和 docstring
+- 每个函数有 docstring
+
+## 测试
+
+```bash
+# 运行现有测试
+python -m pytest tests/ -v
+```
+
+## 行为准则
+
+- 尊重所有贡献者
+- 数据隐私第一：不提交任何个人数据
+- 诚实标注功能状态：已实现 / 预览 / 计划中
+
+## 问题
+
+有问题随时在 [GitHub Issues](https://github.com/firefly-lm-org/firefly-client/issues) 提问。

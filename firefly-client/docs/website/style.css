@@ -1,0 +1,263 @@
+/* 萤火虫大模型官网 — 极简浅色版 */
+
+/* ---------- Reset ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+ul { margin: 0; padding: 0; list-style: none; }
+a { color: inherit; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------- 变量 ---------- */
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f7f8fa;
+  --text: #1a1d24;
+  --text-soft: #4a5060;
+  --border: #e4e7ec;
+  --primary: #ff7a18;       /* 火苗橙 */
+  --primary-hover: #e86a10;
+  --radius: 8px;
+  --max-w: 720px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* ---------- 基础 ---------- */
+body {
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------- Header ---------- */
+header {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 24px 20px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+header .logo {
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--primary);
+  letter-spacing: 0.02em;
+}
+header nav { display: flex; gap: 20px; }
+header nav a {
+  color: var(--text-soft);
+  font-size: 14px;
+  transition: color 0.15s;
+}
+header nav a:hover { color: var(--primary); text-decoration: none; }
+
+/* ---------- Main ---------- */
+main {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 40px 20px 60px;
+}
+
+/* ---------- Hero ---------- */
+.hero { text-align: center; padding: 40px 0 32px; }
+.hero h1 {
+  font-size: 42px;
+  line-height: 1.25;
+  margin: 0 0 16px;
+  letter-spacing: -0.01em;
+}
+.hero .sub {
+  font-size: 18px;
+  color: var(--text-soft);
+  margin: 0 0 10px;
+}
+.hero .meta {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 28px;
+}
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-block;
+  padding: 11px 24px;
+  border-radius: var(--radius);
+  font-size: 15px;
+  font-weight: 600;
+  background: var(--primary);
+  color: #fff;
+  border: 1px solid var(--primary);
+  transition: background 0.15s, transform 0.1s;
+}
+.btn:hover { background: var(--primary-hover); text-decoration: none; }
+.btn:active { transform: translateY(1px); }
+.btn.ghost {
+  background: transparent;
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+}
+.btn.ghost:hover {
+  background: var(--bg-soft);
+  color: var(--text);
+  text-decoration: none;
+}
+
+/* ---------- What ---------- */
+.what {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  margin: 32px 0;
+  font-size: 15px;
+  color: var(--text-soft);
+  line-height: 1.8;
+}
+
+/* ---------- Status ---------- */
+.status h2 {
+  font-size: 20px;
+  margin: 0 0 14px;
+  color: var(--text);
+}
+.status ul { display: flex; flex-direction: column; gap: 8px; }
+.status li {
+  padding: 10px 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+/* ---------- Links ---------- */
+.links { margin-top: 36px; }
+.links h2 {
+  font-size: 20px;
+  margin: 0 0 14px;
+}
+.links p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.9;
+}
+.links a {
+  color: var(--primary);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+.links a:hover { border-bottom-color: var(--primary); text-decoration: none; }
+
+/* ---------- News ---------- */
+.news { margin-top: 36px; }
+.news h2 {
+  font-size: 20px;
+  margin: 0 0 14px;
+}
+.news-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.news-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+.news-date {
+  flex: 0 0 auto;
+  font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #8b9099;
+  padding-top: 1px;
+  min-width: 88px;
+}
+.news-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.tag-shipped { background: #e8f5e9; color: #2e7d32; }
+.tag-doc     { background: #e3f2fd; color: #1565c0; }
+.tag-plan   { background: #fff3e0; color: #e65100; }
+.news-text { flex: 1; }
+
+/* ---------- Footer ---------- */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 20px;
+  text-align: center;
+  font-size: 13px;
+  color: #8b9099;
+  background: var(--bg-soft);
+}
+footer p { margin: 4px 0; }
+
+/* ---------- 移动端 ---------- */
+@media (max-width: 600px) {
+  header {
+    padding: 18px 16px 0;
+  }
+  header .logo { font-size: 16px; }
+  header nav { gap: 14px; }
+  header nav a { font-size: 13px; }
+
+  main { padding: 24px 16px 40px; }
+
+  .hero { padding: 24px 0 20px; }
+  .hero h1 { font-size: 30px; }
+  .hero .sub { font-size: 16px; }
+  .hero .meta { font-size: 13px; }
+
+  .cta { flex-direction: column; align-items: stretch; }
+  .btn { text-align: center; }
+
+  .what { padding: 20px; font-size: 14px; }
+
+  .status li { font-size: 13px; padding: 9px 12px; }
+
+  .news-list li { flex-direction: column; gap: 6px; padding: 10px 12px; }
+  .news-date { min-width: 0; font-size: 11px; }
+  .news-tag { font-size: 10px; padding: 1px 6px; }
+
+  .links p { font-size: 13px; }
+}
+
+/* 暗色模式（系统级自动） */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --bg-soft: #161a22;
+    --text: #e6e8ec;
+    --text-soft: #a0a6b0;
+    --border: #232830;
+  }
+  .btn.ghost { color: var(--text-soft); }
+  .btn.ghost:hover { color: var(--text); }
+  footer { background: var(--bg-soft); }
+
+  /* News tags in dark mode */
+  .tag-shipped { background: #1b3a1b; color: #81c784; }
+  .tag-doc     { background: #1a2a3a; color: #64b5f6; }
+  .tag-plan   { background: #3a2a1a; color: #ffb74d; }
+}
