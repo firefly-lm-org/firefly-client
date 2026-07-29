@@ -1,0 +1,29 @@
+# 萤火虫大模型官网 — Cloudflare Pages 安全头配置
+# 语法：https://developers.cloudflare.com/pages/platform/headers/
+
+/*
+  # 基础安全头
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+
+  # HTTPS 强制（Cloudflare 侧已默认开启 HSTS，这里补充预加载提示）
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+  # 内容安全策略（极简静态页，无内联脚本、无第三方资源）
+  Content-Security-Policy: default-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://afdian.com https://github.com; form-action 'none'; frame-ancestors 'none'
+
+  # 缓存策略（HTML 不缓存，CSS 缓存 1 小时）
+  Cache-Control: public, max-age=3600
+
+/css/*
+  Content-Type: text/css; charset=utf-8
+  Cache-Control: public, max-age=86400
+
+/index.html
+  Cache-Control: public, max-age=300
+
+/_headers
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=86400
