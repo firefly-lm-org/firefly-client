@@ -119,12 +119,13 @@ class DonationBridge:
     """
 
     def __init__(self, config: ClientConfig | None = None):
-        self.cfg = config or ClientConfig.from_env()
+        from app.config import load_config
+        self.cfg = config or load_config()
         self._client: httpx.AsyncClient | None = None
 
     @property
     def endpoint(self) -> str:
-        return f"{self.cfg.scheduler_url}/api/v1/contrib/signal"
+        return f"{self.cfg.server_url}/api/v1/contrib/signal"
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:

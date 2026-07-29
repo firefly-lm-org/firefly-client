@@ -34,7 +34,7 @@ import httpx
 from app.config import ClientConfig, get_headers, load_config, save_config
 from app.trainer import TrainingConfig, MockTrainer, RealQLoRATrainer
 from app.donation_bridge import DonationBridge, SignalPayload, report_training_signal
-from app.hardware import get_hardware_info
+from app.hardware import full_hardware_report as get_hardware_info
 
 # ─────────────────────────────────────
 # 数据结构
@@ -77,7 +77,7 @@ class FedExecutor:
     用法示例：
         executor = FedExecutor(scheduler_url="http://106.14.220.169:8000")
         cfg = load_config()
-        cfg.scheduler_url = "http://106.14.220.169:8000"
+        cfg.server_url = "http://106.14.220.169:8000"
         save_config(cfg)
 
         task = await executor.claim_task(domain="law", cfg=cfg)
@@ -133,7 +133,7 @@ class FedExecutor:
             payload["preferred_level"] = preferred_level
 
         resp = await client.post(
-            f"{self.scheduler_url}/api/v1/task/claim",
+            f"{self.scheduler_url}/api/v1/tasks/claim",
             json=payload,
             headers=headers,
         )
@@ -309,7 +309,7 @@ class FedExecutor:
 
         try:
             resp = await client.post(
-                f"{self.scheduler_url}/api/v1/task/progress",
+                f"{self.scheduler_url}/api/v1/tasks/progress",
                 json=body,
                 headers=headers,
             )
@@ -354,7 +354,7 @@ class FedExecutor:
         }
 
         resp = await client.post(
-            f"{self.scheduler_url}/api/v1/task/submit",
+            f"{self.scheduler_url}/api/v1/tasks/complete",
             json=body,
             headers=headers,
         )
@@ -480,7 +480,7 @@ async def run_federated_training(
     自动加载/保存配置文件
     """
     cfg = load_config()
-    cfg.scheduler_url = scheduler_url
+    cfg.server_url = scheduler_url
     cfg.node_id = node_id
     cfg.access_token = access_token
     save_config(cfg)

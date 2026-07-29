@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Debug scripts
+_*.py
+_*.sh
+_probe_*
+_push_*
+_check_*
+_verify_*
+_dbg*
+_test_sched*
+_writecfg*
+_netcheck*
+_dns_check*
+_site_check*
+_vercel_check*
+_pat_check*
+_gitdata_push*
+
+# Test artifacts
+test_out.txt
+test_sched.*
+1
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firefly client local data
+firefly-client/
+docs_clone/

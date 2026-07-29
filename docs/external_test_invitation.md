@@ -22,27 +22,33 @@
 
 ---
 
-## 快速开始（5 步）
+## 快速开始（6 步）
 
 ```bash
 # 1. 克隆仓库
 git clone --depth 1 https://github.com/firefly-lm-org/firefly-client.git
 cd firefly-client
 
-# 2. 安装 CLI
+# 2. 安装 CLI（不含 torch，避免版本冲突）
 pip install -e .
 
-# 3. 安装 GPU 依赖
+# 3. 安装 GPU 依赖（按你的 CUDA 版本选择）
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 pip install transformers peft accelerate datasets sentencepiece unsloth \
     -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 4. 下载示例数据并训练（约 5 分钟）
+# 4. 设置调度中心地址（首次使用必须执行一次）
+firefly-node config
+# 如果上面的命令不显示 106.14.220.169，手动设置：
+# Linux/Mac:  echo '{"server_url":"http://106.14.220.169:8000"}' > ~/.firefly/config.json
+# Windows:    打开 %USERPROFILE%\.firefly\config.json 修改 server_url
+
+# 5. 下载示例数据并训练（约 5 分钟）
 curl -LO https://raw.githubusercontent.com/firefly-lm-org/firefly-client/main/data/law_qa.jsonl
 firefly-node train-local --dataset law_qa.jsonl --domain law \
     --output my_adapter.safetensors --steps 30
 
-# 5. 推理验证
+# 6. 推理验证
 firefly-node chat --adapter my_adapter.safetensors \
     --prompt "劳动合同到期不续签有赔偿吗？"
 ```
@@ -53,12 +59,14 @@ firefly-node chat --adapter my_adapter.safetensors \
 
 如果你愿意参与联邦微调（贡献脱敏信号，不传原始数据）：
 
+> **前提**：确保调度中心地址已设置为 `http://106.14.220.169:8000`（见上方第 4 步）。
+
 ```bash
 # 查看调度中心状态
-firefly-node fed status
+firefly-node fed status --server http://106.14.220.169:8000
 
 # 认领任务（连不上调度中心时自动降级到本地模式）
-firefly-node fed claim --domain law
+firefly-node fed claim --domain law --server http://106.14.220.169:8000
 
 # 本地训练
 firefly-node fed train --dataset law_qa.jsonl --steps 30

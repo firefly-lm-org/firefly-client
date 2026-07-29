@@ -138,7 +138,7 @@ async def report_progress(
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
-                f"{cfg.server_url}/api/v1/task/progress",
+                f"{cfg.server_url}/api/v1/tasks/progress",
                 headers=get_headers(cfg),
                 json=body,
             )
@@ -326,7 +326,7 @@ async def upload_result(
             }
 
         response = await client.post(
-            f"{cfg.server_url}/api/v1/task/submit-file",
+            f"{cfg.server_url}/api/v1/tasks/complete",
             headers=headers,
             files=files,
             data={
@@ -364,7 +364,7 @@ async def execute_task(cfg: ClientConfig) -> bool:
         # 1. 领取任务
         console.print("  🎯 尝试领取任务...")
         resp = await client.post(
-            f"{cfg.server_url}/api/v1/task/claim",
+            f"{cfg.server_url}/api/v1/tasks/claim",
             headers=headers,
         )
 
