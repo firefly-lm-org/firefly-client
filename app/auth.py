@@ -98,5 +98,5 @@ async def ensure_authenticated(cfg: ClientConfig) -> bool:
         return True
     if cfg.refresh_token:
         return await refresh_token(cfg)
-    console.print("[red]❌ 未登录，请先执行 `firefly login`[/red]")
+    console.print("[red]❌ 未登录，请先执行 `firefly-node login`[/red]")
     return False

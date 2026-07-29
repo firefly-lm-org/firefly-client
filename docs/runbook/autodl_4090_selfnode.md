@@ -73,7 +73,7 @@ export FIREFLY_MAX_SEQ_LENGTH=512
 export FIREFLY_BATCH_SIZE=1
 export FIREFLY_MAX_STEPS=60
 export FIREFLY_DATA_PATH=data/alpaca_demo.jsonl
-firefly start
+firefly-node start
 ```
 
 ### 9. 查看训练产物

@@ -50,7 +50,7 @@ def register(
     console.print(f"🔗 服务器: {cfg.server_url}")
     success = asyncio.run(auth_register(cfg, username, password))
     if success:
-        console.print("[green]💡 下一步: 运行 `firefly node-register <节点名称>` 注册本机为节点[/green]")
+        console.print("[green]💡 下一步: 运行 `firefly-node node-register <节点名称>` 注册本机为节点[/green]")
 
 
 # ─────────────────────────────────────
@@ -65,7 +65,7 @@ def login(
     global cfg
     success = asyncio.run(auth_login(cfg, username, password))
     if success:
-        console.print("[green]💡 下一步: 运行 `firefly node-register <节点名称>`[/green]")
+        console.print("[green]💡 下一步: 运行 `firefly-node node-register <节点名称>`[/green]")
 
 
 # ─────────────────────────────────────
@@ -113,7 +113,7 @@ def start(
         sys.exit(1)
 
     if not cfg.node_id:
-        console.print("[red]❌ 请先运行 `firefly node-register <名称>` 注册节点[/red]")
+        console.print("[red]❌ 请先运行 `firefly-node node-register <名称>` 注册节点[/red]")
         sys.exit(1)
 
     console.print(Panel.fit(
@@ -451,7 +451,7 @@ def fed_status(
                     console.print(f"[yellow]⚠️  调度中心返回 {resp.status_code}[/yellow]")
             except httpx.RequestError as e:
                 console.print(f"[red]❌ 无法连接调度中心: {e}[/red]")
-                console.print("[yellow]💡 提示: 可以先使用 `firefly fed train` 做本地训练[/yellow]")
+                console.print("[yellow]💡 提示: 可以先使用 `firefly-node fed train` 做本地训练[/yellow]")
                 return
 
             # 2. 任务池统计
@@ -470,7 +470,7 @@ def fed_status(
                     table.add_row("已完成任务", str(data["tasks"]["completed"]))
                     console.print(table)
                 elif resp.status_code == 401:
-                    console.print("[yellow]⚠️  需要登录才能查看统计（firefly login）[/yellow]")
+                    console.print("[yellow]⚠️  需要登录才能查看统计（firefly-node login）[/yellow]")
             except Exception:
                 pass
 
@@ -510,11 +510,11 @@ def fed_claim(
             console.print(f"  领域: {task.domain}")
             console.print(f"  难度: L{task.task_level}")
             console.print(f"  截止: {task.deadline.strftime('%Y-%m-%d %H:%M')}")
-            console.print(f"\n[cyan]下一步: firefly fed train --task-id {task.task_id}[/cyan]")
+            console.print(f"\n[cyan]下一步: firefly-node fed train --task-id {task.task_id}[/cyan]")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 console.print(f"[yellow]⚠️  暂无 {domain} 领域的可用任务[/yellow]")
-                console.print("[dim]可以先用 `firefly fed train` 做本地训练[/dim]")
+                console.print("[dim]可以先用 `firefly-node fed train` 做本地训练[/dim]")
             else:
                 console.print(f"[red]❌ 认领失败: {e.response.status_code} {e.response.text[:200]}[/red]")
         except httpx.RequestError as e:
@@ -525,7 +525,7 @@ def fed_claim(
             console.print(f"  Task ID: {mock_id}")
             console.print(f"  领域: {domain}")
             console.print(f"  模式: 离线（训练结果将保存到本地）")
-            console.print(f"\n[cyan]下一步: firefly fed train --task-id {mock_id} --dataset data/{domain}_qa.jsonl[/cyan]")
+            console.print(f"\n[cyan]下一步: firefly-node fed train --task-id {mock_id} --dataset data/{domain}_qa.jsonl[/cyan]")
         finally:
             await executor.close()
 
@@ -598,7 +598,7 @@ def fed_train(
         f"  文件: {os.path.abspath(output)} ({size_mb:.1f} MB)\n"
         f"  最终 Loss: {final_loss:.4f}\n"
         f"  耗时: {elapsed:.0f}s\n"
-        f"\n[cyan]下一步: firefly fed complete --task-id {task_id} --loss {final_loss:.2f}[/cyan]"
+        f"\n[cyan]下一步: firefly-node fed complete --task-id {task_id} --loss {final_loss:.2f}[/cyan]"
     )
 
 
@@ -661,7 +661,7 @@ def fed_complete(
             console.print(f"[dim]联网后可手动重传[/dim]")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
-                console.print("[yellow]⚠️  需要登录（firefly login），信号已保存到本地[/yellow]")
+                console.print("[yellow]⚠️  需要登录（firefly-node login），信号已保存到本地[/yellow]")
                 sig_dir = Path.home() / ".firefly" / "signals"
                 sig_dir.mkdir(parents=True, exist_ok=True)
                 sig_file = sig_dir / f"{task_id}_signal.json"
