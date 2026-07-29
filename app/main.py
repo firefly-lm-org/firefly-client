@@ -762,6 +762,109 @@ def demo(
 
 
 # ─────────────────────────────────────
+# 命令 11：doctor（环境检查）
+# ─────────────────────────────────────
+@app.command()
+def doctor():
+    """🔍 环境检查 - 5 秒验证你的环境是否就绪"""
+    import platform
+    import shutil
+    import socket
+    import urllib.request
+
+    console.print()
+    console.print("[bold cyan]Firefly LM 环境检查[/bold cyan]")
+    console.print("[dim]验证你的环境是否可以开始联邦训练[/dim]\n")
+
+    all_ok = True
+
+    # 1. Python 版本
+    try:
+        py_ver = platform.python_version()
+        major, minor = sys.version_info[:2]
+        if major >= 3 and minor >= 8:
+            console.print(f"  [green]✅[/green] Python {py_ver}")
+        else:
+            console.print(f"  [red]❌[/red] Python {py_ver} (需要 3.8+)")
+            all_ok = False
+    except Exception:
+        console.print("  [red]❌[/red] Python 版本检测失败")
+        all_ok = False
+
+    # 2. torch
+    try:
+        import torch
+        cuda = torch.cuda.is_available()
+        ver = torch.__version__
+        if cuda:
+            console.print(f"  [green]✅[/green] torch {ver} (CUDA 可用: {torch.cuda.get_device_name(0)})")
+        else:
+            console.print(f"  [yellow]⚠️[/yellow] torch {ver} (CPU 模式, 训练较慢但 demo 可用)")
+    except ImportError:
+        console.print("  [red]❌[/red] torch 未安装 → pip install torch")
+        all_ok = False
+
+    # 3. safetensors
+    try:
+        import safetensors
+        console.print(f"  [green]✅[/green] safetensors {safetensors.__version__}")
+    except ImportError:
+        console.print("  [red]❌[/red] safetensors 未安装 → pip install safetensors")
+        all_ok = False
+
+    # 4. 配置文件
+    config_path = Path.home() / ".firefly" / "config.json"
+    if config_path.exists():
+        try:
+            with open(config_path, "r") as f:
+                cfg = json.load(f)
+            server = cfg.get("server_url", "未设置")
+            console.print(f"  [green]✅[/green] 配置文件: {config_path}")
+            console.print(f"       server_url: {server}")
+        except Exception:
+            console.print(f"  [yellow]⚠️[/yellow] 配置文件存在但解析失败: {config_path}")
+    else:
+        console.print(f"  [yellow]⚠️[/yellow] 配置文件不存在: {config_path}")
+        console.print("       运行 firefly-node config 创建")
+
+    # 5. 调度中心可达
+    server_url = "http://106.14.220.169:8000"
+    try:
+        with urllib.request.urlopen(f"{server_url}/api/v1/aggregation/list", timeout=5) as resp:
+            if resp.status == 200:
+                console.print(f"  [green]✅[/green] 调度中心可达: {server_url}")
+            else:
+                console.print(f"  [yellow]⚠️[/yellow] 调度中心返回 {resp.status}")
+                all_ok = False
+    except Exception:
+        console.print(f"  [red]❌[/red] 调度中心不可达: {server_url}")
+        all_ok = False
+
+    # 6. 数据文件
+    data_files = ["data/law_qa.jsonl", "data/law_holdout.jsonl"]
+    project_root = Path(__file__).resolve().parent.parent
+    for df in data_files:
+        full_path = project_root / df
+        if full_path.exists():
+            with open(full_path, "r", encoding="utf-8") as f:
+                count = sum(1 for line in f if line.strip())
+            console.print(f"  [green]✅[/green] {df} ({count} 条)")
+        else:
+            console.print(f"  [yellow]⚠️[/yellow] {df} 不存在")
+
+    # 总结
+    console.print()
+    if all_ok:
+        console.print("[bold green] 一切就绪，可以开始训练！[/bold green]")
+        console.print("\n  快速开始:")
+        console.print("    firefly-node demo          # 30 秒体验完整联邦流程")
+        console.print("    firefly-node train-local    # 用 GPU 训练你的第一个适配器")
+    else:
+        console.print("[bold red] 有问题需要修复，看上面的 ❌ 项[/bold red]")
+    console.print()
+
+
+# ─────────────────────────────────────
 # 入口
 # ─────────────────────────────────────
 if __name__ == "__main__":
