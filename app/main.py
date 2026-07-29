@@ -725,6 +725,43 @@ def fed_download(
 
 
 # ─────────────────────────────────────
+# 命令 10：demo（单机多节点联邦训练演示）
+# ─────────────────────────────────────
+@app.command()
+def demo(
+    domain: str = typer.Option("law", "--domain", "-d", help="领域 (law/medical/python/tax/education)"),
+    nodes: int = typer.Option(4, "--nodes", "-n", help="模拟节点数 (默认 4)"),
+    steps: int = typer.Option(5, "--steps", "-s", help="训练步数 (默认 5)"),
+    output: str = typer.Option("./demo_output", "--output", "-o", help="输出目录"),
+):
+    """🔥 单机多节点联邦训练演示 (无需 GPU，30 分钟跑通完整管线)"""
+    import subprocess
+
+    script_path = Path(__file__).resolve().parent.parent / "scripts" / "demo_mode.py"
+    if not script_path.exists():
+        console.print(f"[red]错误: demo 脚本不存在: {script_path}[/red]")
+        raise typer.Exit(1)
+
+    cmd = [
+        sys.executable, str(script_path),
+        "--domain", domain,
+        "--nodes", str(nodes),
+        "--steps", str(steps),
+        "--output", output,
+    ]
+    console.print(f"[cyan]启动 Demo Mode: {domain} | {nodes} nodes | {steps} steps[/cyan]")
+    console.print(f"[dim]脚本: {script_path}[/dim]\n")
+    result = subprocess.run(cmd, cwd=str(script_path.parent.parent))
+    if result.returncode == 0:
+        console.print(f"\n[green]Demo 完成！[/green]")
+        console.print(f"  聚合权重: {output}/aggregated.safetensors")
+        console.print(f"  下一步: firefly-node chat --adapter {output}/aggregated.safetensors")
+    else:
+        console.print(f"\n[red]Demo 失败 (exit code {result.returncode})[/red]")
+        raise typer.Exit(1)
+
+
+# ─────────────────────────────────────
 # 入口
 # ─────────────────────────────────────
 if __name__ == "__main__":

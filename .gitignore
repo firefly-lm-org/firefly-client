@@ -39,6 +39,7 @@ _gitdata_push*
 test_out.txt
 test_sched.*
 1
+demo_output/
 
 # OS
 .DS_Store
