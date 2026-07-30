@@ -39,8 +39,11 @@ firefly-node chat --adapter my_adapter.safetensors \
 
 | 命令 | 说明 |
 |------|------|
+| `firefly-node doctor` | 环境检查（Python/torch/配置/服务器/数据，5秒验证） |
+| `firefly-node demo` | 单机模拟 4 节点联邦训练（CPU，30秒跑完） |
 | `firefly-node train-local` | 本地 QLoRA 训练（数据不出本机） |
 | `firefly-node chat` | 用 LoRA 适配器推理 |
+| `firefly-node verify` | 验证适配器来源（SHA256 manifest 比对） |
 | `firefly-node fed status` | 查看调度中心状态 |
 | `firefly-node fed claim` | 认领联邦训练任务 |
 | `firefly-node fed train` | 执行联邦训练 |
@@ -50,6 +53,34 @@ firefly-node chat --adapter my_adapter.safetensors \
 | `firefly-node login` | 登录 |
 | `firefly-node start` | 开始贡献算力（后台） |
 | `firefly-node status` | 查看节点状态 |
+
+## 5 天课程
+
+| 天 | 主题 | 文档 |
+|----|------|------|
+| 1 | 联邦学习概念 + demo mode | [docs/demo_guide.md](docs/demo_guide.md) |
+| 2 | 训练你的第一个适配器 | [docs/day2_train_local.md](docs/day2_train_local.md) |
+| 3 | FedAvg 聚合数学 | [docs/day3_fedavg_math.md](docs/day3_fedavg_math.md) |
+| 4 | 防作弊攻防 | [docs/day4_anticheat.md](docs/day4_anticheat.md) |
+| 5 | 评估与优化 | [docs/day5_evaluation.md](docs/day5_evaluation.md) |
+
+## 常用脚本
+
+| 脚本 | 说明 |
+|------|------|
+| `scripts/demo_mode.py` | 单机多节点联邦训练模拟 |
+| `scripts/fedavg_weighted.py` | 软加权 FedAvg 聚合 |
+| `scripts/eval_aggregated.py` | 聚合后 holdout 评估 |
+| `scripts/cheat_detect.py` | 本地 cos 相似度防作弊检测 |
+
+## 文档
+
+| 文档 | 说明 |
+|------|------|
+| [FAQ](docs/faq.md) | 常见问题 |
+| [学生创业指南](docs/student_entrepreneur_guide.md) | 用火种做你的第一个 AI 产品 |
+| [学生创业合作政策](docs/student_partner_policy.md) | 合作模式与红线 |
+| [外部测试邀请](docs/external_test_invitation.md) | 测试者指南 |
 
 ## 环境变量
 
