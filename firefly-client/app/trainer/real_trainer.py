@@ -118,19 +118,31 @@ class RealTrainer:
         dtype = torch.bfloat16 if bf16 else torch.float16
         logger.info(f"[RealTrainer] loading model: {MODEL_PATH} (bf16={bf16})")
 
-        # 4-bit 量化加载
-        bnb_cfg = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=dtype,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-        )
-        self.model = AutoModelForCausalLM.from_pretrained(
-            MODEL_PATH,
-            quantization_config=bnb_cfg,
-            device_map="auto",
-            trust_remote_code=True,
-        )
+        # 尝试 4-bit 量化（bitsandbytes 可能在部分 torch 版本有兼容性问题）
+        # 如果失败，改用 float16 直接加载（24GB 显存足够容纳 Qwen2.5-1.5B）
+        try:
+            bnb_cfg = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=dtype,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+            )
+            self.model = AutoModelForCausalLM.from_pretrained(
+                MODEL_PATH,
+                quantization_config=bnb_cfg,
+                device_map="auto",
+                trust_remote_code=True,
+            )
+            logger.info("[RealTrainer] Model loaded with 4-bit quantization")
+        except (AttributeError, Exception) as e:
+            logger.warning(f"[RealTrainer] 4-bit quantization failed ({e}), "
+                          f"falling back to float16 direct load (24GB VRAM sufficient)")
+            self.model = AutoModelForCausalLM.from_pretrained(
+                MODEL_PATH,
+                dtype=dtype,
+                device_map="cuda",
+                trust_remote_code=True,
+            )
         self.tokenizer = AutoTokenizer.from_pretrained(
             MODEL_PATH, trust_remote_code=True
         )
@@ -150,13 +162,23 @@ class RealTrainer:
                     f"{sum(p.numel() for p in self.model.parameters() if p.requires_grad):,}")
 
         raw_ds = self._load_dataset()
-        fmt_ds = raw_ds.map(self._format_example)
+        # trl 0.24: use formatting_func (receives dict -> returns str)
+        def _fmt(ex: dict) -> str:
+            instr = ex.get("instruction", ex.get("prompt", ""))
+            out = ex.get("output", ex.get("response", ""))
+            return (
+                "<|im_start|>system\n你是一个有帮助的助手<|im_end|>\n"
+                f"<|im_start|>user\n{instr}<|im_end|>\n"
+                f"<|im_start|>assistant\n{out}<|im_end|>"
+            )
 
+        # max_seq_length goes into SFTConfig for trl >= 0.9
         cfg = SFTConfig(
             per_device_train_batch_size=PER_DEVICE_BATCH,
             gradient_accumulation_steps=GRAD_ACCUM,
             warmup_steps=2,
             max_steps=MAX_STEPS,
+            max_length=MAX_SEQ_LENGTH,
             learning_rate=LR,
             fp16=not bf16,
             bf16=bf16,
@@ -170,15 +192,14 @@ class RealTrainer:
             report_to="none",
         )
 
+        # trl 0.24: formatting_func + processing_class
+        # max_length is set in SFTConfig (not max_seq_length)
         trainer = SFTTrainer(
             model=self.model,
-            tokenizer=self.tokenizer,
-            train_dataset=fmt_ds,
-            dataset_text_field="text",
-            max_seq_length=MAX_SEQ_LENGTH,
-            dataset_num_proc=1,
-            packing=False,
+            train_dataset=raw_ds,
             args=cfg,
+            processing_class=self.tokenizer,
+            formatting_func=_fmt,
         )
 
         # 进度回调（注入 trainer.log）
@@ -209,20 +230,27 @@ class RealTrainer:
         self.model.save_pretrained(adapter_path)
         self.tokenizer.save_pretrained(adapter_path)
 
-        # 转纯 safetensors
+        # 转纯 safetensors（只含 LoRA trainable params，不含 frozen base）
         safetensors_path = os.path.join(run_dir, "lora.safetensors")
-        try:
-            self.model.save_pretrained(safetensors_path)
-        except Exception:
-            sd = self.model.state_dict()
-            from safetensors.torch import save_file
-            save_file(sd, safetensors_path)
+        from safetensors.torch import save_file, load_file
+        adapter_sf = os.path.join(adapter_path, "adapter_model.safetensors")
+        sd = load_file(adapter_sf)
+        save_file(sd, safetensors_path)
 
-        final_loss = (
-            float(trainer.state.log_history[-1].get("loss", 0.0))
-            if trainer.state.log_history
-            else 0.0
-        )
+        final_loss = 0.0
+        for entry in reversed(trainer.state.log_history):
+            if "loss" in entry and entry["loss"] and entry["loss"] > 0:
+                final_loss = float(entry["loss"])
+                break
+
+        # vram_gb: handle torch 2.5 renamed attribute (total_mem -> total_memory)
+        try:
+            vram = torch.cuda.get_device_properties(0).total_memory / 1e9
+        except AttributeError:
+            try:
+                vram = torch.cuda.get_device_properties(0).total_mem / 1e9
+            except AttributeError:
+                vram = 0.0
 
         meta = {
             "task_id": self.task_id,
@@ -241,12 +269,9 @@ class RealTrainer:
             "elapsed_sec": round(time.time() - self.start_time, 1),
             "framework": "transformers+peft+trl",
             "torch_version": torch.__version__,
-            "vram_gb": (
-                torch.cuda.get_device_properties(0).total_mem / 1e9
-                if torch.cuda.is_available()
-                else 0
-            ),
+            "vram_gb": vram,
         }
+
         meta_path = os.path.join(run_dir, "firefly_trainer_meta.json")
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
