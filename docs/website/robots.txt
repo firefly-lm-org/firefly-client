@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://firefly-lm.org/sitemap.xml
+Sitemap: https://firefly-lm.com/sitemap.xml
