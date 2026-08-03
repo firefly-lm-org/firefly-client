@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔥 火种 Firefly LM — 工作区</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- ========= Navigation ========= -->
+    <nav class="nav">
+        <a href="index.html" class="nav-brand">
+            <span class="logo">🔥</span>
+            <span>火种 Firefly LM</span>
+        </a>
+        <div class="nav-links">
+            <a href="#upload" onclick="switchTab('upload')">训练</a>
+            <a href="#history" onclick="switchTab('history')">历史</a>
+            <a href="#chat" onclick="switchTab('chat')">聊天</a>
+            <a href="#points" onclick="switchTab('points')">积分</a>
+        </div>
+        <div class="nav-user">
+            <span class="points" id="navPoints">🔥 0</span>
+            <span style="color:var(--text-dim);font-size:0.9em;" id="navUser">guest</span>
+            <button class="nav-logout" onclick="doLogout()">退出</button>
+        </div>
+    </nav>
+
+    <!-- ========= Workspace ========= -->
+    <div class="workspace">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-title">训练</div>
+                <button class="sidebar-item active" onclick="switchTab('upload')">
+                    <span class="icon">📤</span> 上传数据
+                </button>
+                <button class="sidebar-item" onclick="switchTab('generate')">
+                    <span class="icon">✨</span> 自动生成
+                </button>
+                <button class="sidebar-item" onclick="switchTab('train')">
+                    <span class="icon">⚙️</span> 训练状态
+                </button>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-title">结果</div>
+                <button class="sidebar-item" onclick="switchTab('download')">
+                    <span class="icon">📥</span> 下载权重
+                </button>
+                <button class="sidebar-item" onclick="switchTab('chat')">
+                    <span class="icon">💬</span> 在线测试
+                </button>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-title">账户</div>
+                <button class="sidebar-item" onclick="switchTab('history')">
+                    <span class="icon">📋</span> 历史记录
+                </button>
+                <button class="sidebar-item" onclick="switchTab('points')">
+                    <span class="icon">🔥</span> 积分明细
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content" id="mainContent">
+            <!-- Pages swapped here -->
+        </main>
+    </div>
+
+    <!-- ========= Toast ========= -->
+    <div class="toast" id="toast"></div>
+
+    <!-- ========= JavaScript ========= -->
+    <script src="api.js"></script>
+    <script>
+        // ========= Init =========
+        if (!Firefly.getToken()) {
+            location.href = 'index.html';
+        } else {
+            document.getElementById('navUser').textContent = Firefly.getUser();
+            Firefly.getPointsBalance().then(d => {
+                if (d) document.getElementById('navPoints').textContent = `🔥 ${d.balance || 0}`;
+            }).catch(() => {});
+            switchTab('upload');
+        }
+
+        // ========= Tabs =========
+        function switchTab(tab) {
+            document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+            const main = document.getElementById('mainContent');
+
+            switch(tab) {
+                case 'upload': renderUpload(main); break;
+                case 'generate': renderGenerate(main); break;
+                case 'train': renderTrain(main); break;
+                case 'download': renderDownload(main); break;
+                case 'chat': renderChat(main); break;
+                case 'history': renderHistory(main); break;
+                case 'points': renderPoints(main); break;
+            }
+        }
+
+        // ========= Render: Upload =========
+        function renderUpload(main) {
+            main.innerHTML = `
+                <div class="page-header">
+                    <h1>📤 上传数据训练</h1>
+                    <p>上传 JSONL 格式的训练数据，系统自动检测配置并推荐训练方式。</p>
+                </div>
+
+                <div class="card">
+                    <div class="upload-zone" id="uploadZone"
+                         ondragover="event.preventDefault(); this.classList.add('dragover')"
+                         ondragleave="this.classList.remove('dragover')"
+                         ondrop="handleDrop(event)">
+                        <div class="upload-icon">📤</div>
+                        <p><strong>拖拽 JSONL 文件到此处</strong>，或点击选择文件</p>
+                        <p class="hint">支持 .jsonl 格式，每行一条 {"instruction":"...", "input":"...", "output":"..."}</p>
+                        <input type="file" id="fileInput" accept=".jsonl,.json" hidden onchange="handleFile(this.files[0])">
+                        <button class="btn" style="margin-top:14px;" onclick="document.getElementById('fileInput').click()">选择文件</button>
+                        <div id="selectedFile"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 style="margin-bottom:12px;">选择训练模式</h3>
+                    <div class="mode-selector">
+                        <button class="mode-btn active" id="mode-gpu" onclick="selectMode('gpu')">
+                            <span class="mode-icon">🖥️</span>
+                            <strong>本地 GPU 训练</strong>
+                            <span class="mode-tag">免费 · 推荐</span>
+                        </button>
+                        <button class="mode-btn" id="mode-cpu" onclick="selectMode('cpu')">
+                            <span class="mode-icon">⚙️</span>
+                            <strong>CPU 演示训练</strong>
+                            <span class="mode-tag">免费 · 演示</span>
+                        </button>
+                        <button class="mode-btn" id="mode-paid" onclick="selectMode('paid')">
+                            <span class="mode-icon">☁️</span>
+                            <strong>付费代训练</strong>
+                            <span class="mode-tag">¥9.9 / 次</span>
+                        </button>
+                    </div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:center;">
+                        <label style="font-size:0.88em;color:var(--text-dim);">领域：</label>
+                        <select id="domainSelect" style="padding:6px 12px;border-radius:6px;background:#0a0a0a;border:1px solid #333;color:var(--text);">
+                            <option value="law">法律</option>
+                            <option value="python">Python 编程</option>
+                            <option value="tax">税务</option>
+                            <option value="education">教育</option>
+                        </select>
+                    </div>
+                    <button class="btn" style="margin-top:18px;width:100%;" id="startTrainBtn" onclick="startTraining()">
+                        🚀 开始训练
+                    </button>
+                </div>
+
+                <div class="card progress-card" id="progressCard">
+                    <div class="progress-header">
+                        <h3 id="progressTitle">训练进行中...</h3>
+                        <span class="badge running" id="progressBadge">训练中</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-fill" id="progressFill"></div>
+                    </div>
+                    <div class="stats-row">
+                        <div class="stat-item">
+                            <div class="stat-label">Loss</div>
+                            <div class="stat-value" id="lossValue">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">已用时间</div>
+                            <div class="stat-value" id="timeValue">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">预估剩余</div>
+                            <div class="stat-value" id="etaValue">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">任务 ID</div>
+                            <div class="stat-value" id="taskIdValue" style="font-size:0.8em;">—</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ========= Render: Generate =========
+        function renderGenerate(main) {
+            main.innerHTML = `
+                <div class="page-header">
+                    <h1>✨ 自动生成数据</h1>
+                    <p>没有数据？选择领域，我们用 AI 自动生成高质量训练数据。</p>
+                </div>
+                <div class="card">
+                    <div class="gen-row">
+                        <div>
+                            <label>领域</label>
+                            <select id="genDomain" style="padding:8px 12px;border-radius:6px;background:#0a0a0a;border:1px solid #333;color:var(--text);">
+                                <option value="law">法律</option>
+                                <option value="python">Python</option>
+                                <option value="tax">税务</option>
+                                <option value="education">教育</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>生成条数</label>
+                            <input type="number" id="genCount" value="20" min="5" max="100" style="width:80px;padding:8px;border-radius:6px;background:#0a0a0a;border:1px solid #333;color:var(--text);">
+                        </div>
+                        <div style="flex:1;display:flex;align-items:flex-end;">
+                            <button class="btn" id="genBtn" onclick="generateData()" style="width:100%;">
+                                ✨ 生成数据
+                            </button>
+                        </div>
+                    </div>
+                    <p style="color:var(--text-faint);font-size:0.82em;margin-top:12px;">
+                        ⚠️ 生成过程约 30-60 秒，生成的对话数据会经过质量过滤（≥0.7 分保留）。
+                    </p>
+                </div>
+                <div class="card" id="genResult" style="display:none;">
+                    <h3>生成结果</h3>
+                    <p id="genResultText" style="color:var(--text-dim);font-size:0.9em;margin-top:8px;"></p>
+                    <button class="btn" style="margin-top:12px;" onclick="switchTab('upload')">→ 去训练</button>
+                </div>
+            `;
+        }
+
+        // ========= Render: Train =========
+        function renderTrain(main) {
+            main.innerHTML = `
+                <div class="page-header">
+                    <h1>⚙️ 训练状态</h1>
+                    <p>查看当前和最近的任务状态。</p>
+                </div>
+                <div class="card">
+                    <h3 style="margin-bottom:12px;">当前任务</h3>
+                    <div id="currentTaskInfo">
+                        <p style="color:var(--text-faint);">暂无进行中的任务</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3 style="margin-bottom:12px;">最近任务</h3>
+                    <div id="recentTasksList">
+                        <p style="color:var(--text-faint);">加载中...</p>
+                    </div>
+                </div>
+            `;
+            loadRecentTasks();
+        }
+
+        // ========= Render: Download =========
+        function renderDownload(main) {
+            main.innerHTML = `
+                <div class="page-header">
+                    <h1>📥 下载权重</h1>
+                    <p>训练完成后，下载你的 LoRA 适配器或聚合模型。</p>
+                </div>
+                <div class="card">
+                    <h3 style="margin-bottom:12px;">聚合模型</h3>
+                    <p style="color:var(--text-dim);font-size:0.9em;margin-bottom:12px;">
+                        聚合模型由多个节点的 LoRA 权重加权平均生成，效果优于单节点。
+                    </p>
+                    <div id="aggregationList">
+                        <p style="color:var(--text-faint);">加载中...</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3 style="margin-bottom:12px;">我的适配器</h3>
+                    <div id="myAdapters">
+                        <p style="color:var(--text-faint);">加载中...</p>
+                    </div>
+                </div>
+            `;
+            loadAggregations();
+            loadMyAdapters();
+        }
+
+        // ========= Render: Chat =========
+        function renderChat(main) {
+            main.innerHTML = `
+                <div class="page-header">
+                    <h1>💬 在线测试</h1>
+                    <p>加载你的适配器，和模型对话验证效果。</p>
+                </div>
+                <div class="card">
+                    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+                        <label style="font-size:0.88em;color:var(--text-dim);">适配器：</label>
+                        <select id="chatAdapter" style="padding:6px 12px;border-radius:6px;background:#0a0a0a;border:1px solid #333;color:var(--text);">
+                            <option value="">（无 / 使用基座模型）</option>
+                        </select>
+                        <button class="btn sm ghost" onclick="loadChatAdapters()">刷新列表</button>
+                    </div>
+                    <div class="chat-container">
+                        <div class="chat-messages" id="chatMessages">
+                            <div class="chat-msg ai">
+                                <div class="chat-avatar">🤖</div>
+                                <div class="chat-bubble">你好！我是火种训练的 AI 助手。请先选择适配器，然后开始对话。</div>
+                            </div>
+                        </div>
+                        <div class="chat-input-area">
+                            <input type="text" id="chatInput" placeholder="输入消息...（Enter 发送）" onkeypress="if(event.key==='Enter') sendMessage()">
+                            <button class="btn" onclick="sendMessage()">发送</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            loadChatAdapters();
+        }
+
+        // ========= Render: History =========
+        function renderHistory(main) {
+            main.innerHTML = `
+                <div class="page-header">
+                    <h1>📋 历史记录</h1>
+                    <p>所有训练任务的完整记录。</p>
+                </div>
+                <div class="card" style="overflow-x:auto;">
+                    <table class="task-table" id="historyTable">
+                        <thead>
+                            <tr>
+                                <th>任务 ID</th>
+                                <th>领域</th>
+                                <th>状态</th>
+                                <th>Loss</th>
+                                <th>完成时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyBody">
+                            <tr><td colspan="6" style="color:var(--text-faint);">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            loadHistory();
+        }
+
+        // ========= Render: Points =========
+        function renderPoints(main) {
+            main.innerHTML = `
+                <div class="page-header">
+                    <h1>🔥 积分明细</h1>
+                    <p>训练获得积分，下载聚合模型消耗积分。</p>
+                </div>
+                <div class="card">
+                    <div style="display:flex;align-items:baseline;gap:10px;">
+                        <span style="font-size:2.5em;font-weight:700;color:var(--accent);" id="pointsTotal">—</span>
+                        <span style="color:var(--text-dim);">总积分</span>
+                    </div>
+                </div>
+                <div class="card" style="overflow-x:auto;">
+                    <h3 style="margin-bottom:12px;">明细</h3>
+                    <table class="task-table" id="pointsTable">
+                        <thead>
+                            <tr><th>时间</th><th>类型</th><th>积分变动</th><th>说明</th></tr>
+                        </thead>
+                        <tbody id="pointsBody">
+                            <tr><td colspan="4" style="color:var(--text-faint);">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            loadPointsDetail();
+        }
+
+        // ========= File Handling =========
+        let selectedFile = null;
+
+        function handleDrop(e) {
+            e.preventDefault();
+            document.getElementById('uploadZone').classList.remove('dragover');
+            if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+        }
+
+        function handleFile(file) {
+            selectedFile = file;
+            const el = document.getElementById('selectedFile');
+            el.className = 'selected-file';
+            el.textContent = `✓ ${file.name} (${Firefly.formatSize(file.size)})`;
+            Firefly.showToast(`已选择: ${file.name}`, 'success');
+        }
+
+        // ========= Mode Select =========
+        let currentMode = 'gpu';
+        function selectMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('mode-' + mode).classList.add('active');
+        }
+
+        // ========= Start Training =========
+        let pollTimer = null;
+        let currentTaskId = null;
+
+        async function startTraining() {
+            if (!selectedFile && currentMode !== 'cpu') {
+                Firefly.showToast('请先选择数据文件', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('startTrainBtn');
+            btn.disabled = true;
+            btn.textContent = '提交中...';
+
+            try {
+                let taskId;
+                if (currentMode === 'gpu') {
+                    taskId = (await Firefly.submitTrain(selectedFile, document.getElementById('domainSelect').value)).task_id;
+                } else if (currentMode === 'cpu') {
+                    taskId = (await Firefly.submitCPU(document.getElementById('domainSelect').value)).task_id;
+                } else {
+                    taskId = (await Firefly.submitPaid(selectedFile, document.getElementById('domainSelect').value)).task_id;
+                }
+
+                currentTaskId = taskId;
+                Firefly.showToast(`任务已提交: ${taskId}`, 'success');
+
+                document.getElementById('progressCard').classList.add('show');
+                document.getElementById('progressTitle').textContent = '训练进行中...';
+                document.getElementById('progressBadge').className = 'badge running';
+                document.getElementById('progressBadge').textContent = '训练中';
+                document.getElementById('taskIdValue').textContent = taskId;
+
+                startPolling(taskId);
+            } catch (e) {
+                Firefly.showToast(e.message || '提交失败', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🚀 开始训练';
+            }
+        }
+
+        function startPolling(taskId) {
+            if (pollTimer) clearInterval(pollTimer);
+            const startTime = Date.now();
+
+            pollTimer = setInterval(async () => {
+                try {
+                    const data = await Firefly.getStatus(taskId);
+                    const pct = data.progress || 0;
+                    document.getElementById('progressFill').style.width = pct + '%';
+
+                    if (data.final_loss !== undefined) {
+                        document.getElementById('lossValue').textContent = data.final_loss.toFixed(4);
+                    }
+
+                    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                    document.getElementById('timeValue').textContent = Firefly.formatDuration(elapsed);
+
+                    if (pct > 5) {
+                        const eta = Math.floor(elapsed / pct * (100 - pct));
+                        document.getElementById('etaValue').textContent = Firefly.formatDuration(eta);
+                    }
+
+                    if (['completed', 'failed', 'rejected'].includes(data.status)) {
+                        clearInterval(pollTimer);
+                        const badge = document.getElementById('progressBadge');
+                        if (data.status === 'completed') {
+                            badge.className = 'badge completed';
+                            badge.textContent = '✅ 完成';
+                            document.getElementById('progressTitle').textContent = `训练完成！Loss: ${data.final_loss?.toFixed(4)}`;
+                            Firefly.showToast('🎉 训练完成！', 'success');
+                            // Refresh points
+                            Firefly.getPointsBalance().then(d => {
+                                if (d) document.getElementById('navPoints').textContent = `🔥 ${d.balance || 0}`;
+                            });
+                        } else if (data.status === 'rejected') {
+                            badge.className = 'badge failed';
+                            badge.textContent = '⚠️ 被拒';
+                            Firefly.showToast('任务被反作弊系统拒绝', 'error');
+                        } else {
+                            badge.className = 'badge failed';
+                            badge.textContent = '❌ 失败';
+                            Firefly.showToast('训练失败', 'error');
+                        }
+                    }
+                } catch(e) {}
+            }, 5000);
+        }
+
+        // ========= Generate Data =========
+        async function generateData() {
+            const domain = document.getElementById('genDomain').value;
+            const count = document.getElementById('genCount').value;
+            const btn = document.getElementById('genBtn');
+
+            btn.disabled = true;
+            btn.textContent = '生成中...（约30秒）';
+
+            try {
+                const data = await Firefly.generateData(domain, count);
+                document.getElementById('genResult').style.display = 'block';
+                document.getElementById('genResultText').innerHTML =
+                    `✅ 生成 <strong>${data.count}</strong> 条数据（领域: ${domain}）<br>` +
+                    `质量分 ≥0.7 的已入库，可直接用于训练。`;
+                Firefly.showToast(`生成 ${data.count} 条数据成功`, 'success');
+            } catch (e) {
+                Firefly.showToast(e.message || '生成失败', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '✨ 生成数据';
+            }
+        }
+
+        // ========= Load: Recent Tasks =========
+        async function loadRecentTasks() {
+            try {
+                const data = await Firefly.getHistory(5);
+                const el = document.getElementById('recentTasksList');
+                const tasks = data.tasks || [];
+
+                if (tasks.length === 0) {
+                    el.innerHTML = '<p style="color:var(--text-faint);">暂无任务记录</p>';
+                    return;
+                }
+
+                el.innerHTML = `
+                    <table class="task-table">
+                        <thead><tr><th>任务 ID</th><th>领域</th><th>状态</th><th>Loss</th><th>操作</th></tr></thead>
+                        <tbody>
+                            ${tasks.map(t => `
+                                <tr>
+                                    <td style="font-size:0.85em;">${t.task_id}</td>
+                                    <td>${t.domain}</td>
+                                    <td>${Firefly.statusBadge(t.status)}</td>
+                                    <td>${t.final_loss?.toFixed(3) || '—'}</td>
+                                    <td>${t.status === 'completed' ? `<a href="#" onclick="Firefly.downloadResult('${t.task_id}')">下载</a>` : ''}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch(e) {
+                document.getElementById('recentTasksList').innerHTML =
+                    '<p style="color:var(--text-faint);">加载失败，请稍后重试</p>';
+            }
+        }
+
+        // ========= Load: History =========
+        async function loadHistory() {
+            try {
+                const data = await Firefly.getHistory(50);
+                const tbody = document.getElementById('historyBody');
+                const tasks = data.tasks || [];
+
+                if (tasks.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-faint);">暂无记录</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = tasks.map(t => `
+                    <tr>
+                        <td style="font-size:0.85em;">${t.task_id}</td>
+                        <td>${t.domain}</td>
+                        <td>${Firefly.statusBadge(t.status)}</td>
+                        <td>${t.final_loss?.toFixed(3) || '—'}</td>
+                        <td style="font-size:0.85em;color:var(--text-dim);">${t.completed_at || '—'}</td>
+                        <td>${t.status === 'completed' ? `<a href="#" onclick="Firefly.downloadResult('${t.task_id}')">下载</a>` : '—'}</td>
+                    </tr>
+                `).join('');
+            } catch(e) {
+                document.getElementById('historyBody').innerHTML =
+                    '<tr><td colspan="6" style="color:var(--text-faint);">加载失败</td></tr>';
+            }
+        }
+
+        // ========= Load: Aggregations =========
+        async function loadAggregations() {
+            try {
+                const data = await Firefly.getRounds(10);
+                const el = document.getElementById('aggregationList');
+                const rounds = data.rounds || [];
+
+                if (rounds.length === 0) {
+                    el.innerHTML = '<p style="color:var(--text-faint);">暂无聚合轮次。完成 3 个同领域任务后自动触发。</p>';
+                    return;
+                }
+
+                el.innerHTML = rounds.map(r => `
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #222;">
+                        <div>
+                            <strong>${r.domain}</strong>
+                            <span style="color:var(--text-faint);font-size:0.85em;"> · 轮次 ${r.round}</span>
+                        </div>
+                        <button class="btn sm" onclick="Firefly.downloadRound('${r.round_id || r.domain + '_' + r.round}')">下载</button>
+                    </div>
+                `).join('');
+            } catch(e) {
+                document.getElementById('aggregationList').innerHTML =
+                    '<p style="color:var(--text-faint);">加载失败</p>';
+            }
+        }
+
+        // ========= Load: My Adapters =========
+        async function loadMyAdapters() {
+            try {
+                const data = await Firefly.getHistory(50);
+                const el = document.getElementById('myAdapters');
+                const completed = (data.tasks || []).filter(t => t.status === 'completed');
+
+                if (completed.length === 0) {
+                    el.innerHTML = '<p style="color:var(--text-faint);">暂无可用适配器，完成训练后即可下载。</p>';
+                    return;
+                }
+
+                el.innerHTML = completed.map(t => `
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #222;">
+                        <div>
+                            <strong style="font-size:0.9em;">${t.task_id}</strong>
+                            <span style="color:var(--text-faint);font-size:0.82em;"> · ${t.domain} · loss ${t.final_loss?.toFixed(3)}</span>
+                        </div>
+                        <button class="btn sm" onclick="Firefly.downloadResult('${t.task_id}')">下载</button>
+                    </div>
+                `).join('');
+            } catch(e) {
+                document.getElementById('myAdapters').innerHTML =
+                    '<p style="color:var(--text-faint);">加载失败</p>';
+            }
+        }
+
+        // ========= Load: Chat Adapters =========
+        async function loadChatAdapters() {
+            try {
+                const data = await Firefly.getHistory(50);
+                const sel = document.getElementById('chatAdapter');
+                const completed = (data.tasks || []).filter(t => t.status === 'completed');
+                sel.innerHTML = '<option value="">（无 / 使用基座模型）</option>' +
+                    completed.map(t => `<option value="${t.task_id}">${t.task_id} (${t.domain})</option>`).join('');
+            } catch(e) {}
+        }
+
+        // ========= Send Chat Message =========
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const msg = input.value.trim();
+            if (!msg) return;
+
+            const adapterId = document.getElementById('chatAdapter').value;
+            const messagesEl = document.getElementById('chatMessages');
+
+            messagesEl.innerHTML += `
+                <div class="chat-msg user">
+                    <div class="chat-avatar">👤</div>
+                    <div class="chat-bubble">${Firefly.escapeHtml(msg)}</div>
+                </div>
+            `;
+            input.value = '';
+
+            messagesEl.innerHTML += `
+                <div class="chat-msg ai loading" id="loadingMsg">
+                    <div class="chat-avatar">🤖</div>
+                    <div class="chat-bubble">推理中，约 1-2 分钟...</div>
+                </div>
+            `;
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+
+            try {
+                const data = await Firefly.chat([{ role: 'user', content: msg }], adapterId);
+                const reply = data.choices?.[0]?.message?.content || '（无回复）';
+                const loadingEl = document.getElementById('loadingMsg');
+                if (loadingEl) {
+                    loadingEl.classList.remove('loading');
+                    loadingEl.querySelector('.chat-bubble').textContent = reply;
+                }
+            } catch(e) {
+                const loadingEl = document.getElementById('loadingMsg');
+                if (loadingEl) {
+                    loadingEl.querySelector('.chat-bubble').textContent = '（推理失败，请重试）';
+                }
+            }
+        }
+
+        // ========= Load: Points Detail =========
+        async function loadPointsDetail() {
+            try {
+                const data = await Firefly.getPointsHistory();
+                const tbody = document.getElementById('pointsBody');
+                const txs = data.transactions || [];
+
+                if (txs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-faint);">暂无积分记录</td></tr>';
+                    return;
+                }
+
+                const reasonMap = {
+                    'task_complete': '训练完成',
+                    'quality_bonus': '质量奖励',
+                    'aggregation_bonus': '聚合参与',
+                    'download_cost': '下载聚合模型'
+                };
+
+                tbody.innerHTML = txs.map(t => `
+                    <tr>
+                        <td style="font-size:0.85em;color:var(--text-dim);">${t.created_at}</td>
+                        <td>${reasonMap[t.reason] || t.reason}</td>
+                        <td style="color:${t.points >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:600;">${t.points >= 0 ? '+' : ''}${t.points}</td>
+                        <td style="font-size:0.85em;color:var(--text-dim);">${t.task_id || ''}</td>
+                    </tr>
+                `).join('');
+
+                // Update total
+                const total = txs.reduce((sum, t) => sum + (t.points || 0), 0);
+                const el = document.getElementById('pointsTotal');
+                if (el) el.textContent = total;
+            } catch(e) {
+                document.getElementById('pointsBody').innerHTML =
+                    '<tr><td colspan="4" style="color:var(--text-faint);">加载失败</td></tr>';
+            }
+        }
+
+        // ========= Logout =========
+        function doLogout() {
+            Firefly.logout();
+            location.href = 'index.html';
+        }
+
+        // ========= Keyboard =========
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                // close any open overlays
+            }
+        });
+    </script>
+
+</body>
+</html>
